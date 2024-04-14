@@ -32,10 +32,7 @@ impl<T: Encode + Decode> AppState<T> {
 async fn handle_get(req: Request<Arc<AppState<World>>>) -> tide::Result {
     let state = req.state().clone();
     let store = state.in_memory_store.clone();
-    let rv = store.get(
-        "some-key",
-        &mut state.redis_conn.clone().lock().unwrap(),
-    );
+    let rv = store.get("some-key", &mut state.redis_conn.clone().lock().unwrap());
     println!("w=#{:?}", rv);
 
     Ok(format!("Hello").into())
@@ -46,11 +43,7 @@ async fn handle_post(req: Request<Arc<AppState<World>>>) -> tide::Result {
     let store = state.in_memory_store.clone();
     let w = World(vec![Entity { x: 0.0, y: 4.0 }, Entity { x: 10.0, y: 20.5 }]);
     store
-        .insert(
-            "some-key",
-            w,
-            &mut state.redis_conn.clone().lock().unwrap(),
-        )
+        .insert("some-key", w, &mut state.redis_conn.clone().lock().unwrap())
         .unwrap();
 
     Ok(format!("Hello post").into())

@@ -14,3 +14,9 @@ async-std = { version = "1.8.0", features = ["attributes"] }
 
 [dev-dependencies]
 tide = "0.17.0-beta.1"
+criterion = "0.4.0"
+rand = "0.8.4"
+
+[[bench]]
+name = "benchmarks"
+harness = false

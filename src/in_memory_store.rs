@@ -274,11 +274,7 @@ mod tests {
 
         // insert one and delete from local
         in_memory_store
-            .insert(
-                "some-key",
-                Entity { x: 0.0, y: 4.0 },
-                &mut ctx.redis_conn,
-            )
+            .insert("some-key", Entity { x: 0.0, y: 4.0 }, &mut ctx.redis_conn)
             .unwrap();
         in_memory_store.delete_etag("some-key");
 
@@ -297,11 +293,7 @@ mod tests {
 
         // insert one and delete redis
         in_memory_store
-            .insert(
-                "some-key",
-                Entity { x: 0.0, y: 4.0 },
-                &mut ctx.redis_conn,
-            )
+            .insert("some-key", Entity { x: 0.0, y: 4.0 }, &mut ctx.redis_conn)
             .unwrap();
         redis::cmd("del")
             .arg("some-key".to_string())
@@ -321,11 +313,7 @@ mod tests {
 
         // insert one and update etag
         in_memory_store
-            .insert(
-                "some-key",
-                Entity { x: 0.0, y: 4.0 },
-                &mut ctx.redis_conn,
-            )
+            .insert("some-key", Entity { x: 0.0, y: 4.0 }, &mut ctx.redis_conn)
             .unwrap();
         in_memory_store.update_etag("some-key", "abc");
 
