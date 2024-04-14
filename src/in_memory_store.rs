@@ -1,4 +1,5 @@
 use bincode::{config, Decode, Encode};
+use likely_stable::{if_likely, likely, unlikely};
 use redis::Script;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -25,7 +26,7 @@ pub struct InMemoryStore<T: Encode + Decode> {
 
 const GET_FROM_REDIS_SCRIPT: &str = r#"
 if (redis.call("HGET", KEYS[1], "etag") == ARGV[1]) then
-   return {"val","","etag","-1"}
+   return {"etag","-1"}
 else
    return redis.call("HGETALL", KEYS[1])
 end
@@ -60,14 +61,32 @@ impl<T: Encode + Decode> InMemoryStore<T> {
         Ok(etag)
     }
 
+    #[inline]
     pub fn get(
         &self,
         key: &str,
         redis_conn: &mut redis::Connection,
     ) -> Result<Option<Arc<T>>, redis::RedisError> {
         let data = self.data.read().unwrap();
-        match data.etags.get(key) {
-            None => {
+        if_likely! {let Some(etag) = data.etags.get(key) => {
+                match get_through_local_helper(key, etag, redis_conn) {
+                    Ok(GetThroughLocalResult::Unchanged) => {
+                        let obj = data.structs.get(key).unwrap().clone();
+                        Ok(Some(obj.clone()))
+                    }
+                    Ok(GetThroughLocalResult::None) => Ok(None),
+                    Ok(GetThroughLocalResult::Pair(val, etag)) => {
+                        let (decoded, _): (T, usize) = self.decode_from_string(&val).unwrap();
+                        let decoded_arc = Arc::new(decoded);
+                        drop(data);
+                        let mut data = self.data.write().unwrap();
+                        data.etags.insert(key.to_string(), etag.to_string());
+                        data.structs.insert(key.to_string(), decoded_arc.clone());
+                        Ok(Some(decoded_arc))
+                    }
+                    Err(e) => Err(e),
+                }
+            } else {
                 let redis_result = get_from_redis_helper(key, redis_conn)?;
                 if redis_result.is_empty() {
                     Ok(None) // redis missed
@@ -87,23 +106,6 @@ impl<T: Encode + Decode> InMemoryStore<T> {
                     Ok(Some(decoded_arc))
                 }
             }
-            Some(etag) => match get_through_local_helper(key, etag, redis_conn) {
-                Err(e) => Err(e),
-                Ok(GetThroughLocalResult::None) => Ok(None),
-                Ok(GetThroughLocalResult::Unchanged) => {
-                    let obj = data.structs.get(key).unwrap().clone();
-                    Ok(Some(obj.clone()))
-                }
-                Ok(GetThroughLocalResult::Pair(val, etag)) => {
-                    let (decoded, _): (T, usize) = self.decode_from_string(&val).unwrap();
-                    let decoded_arc = Arc::new(decoded);
-                    drop(data);
-                    let mut data = self.data.write().unwrap();
-                    data.etags.insert(key.to_string(), etag.to_string());
-                    data.structs.insert(key.to_string(), decoded_arc.clone());
-                    Ok(Some(decoded_arc))
-                }
-            },
         }
     }
 
@@ -163,15 +165,16 @@ enum GetThroughLocalResult {
     Pair(String, String),
 }
 
+#[inline]
 fn get_through_local_helper(
     key: &str,
     etag: &String,
     conn: &mut redis::Connection,
 ) -> Result<GetThroughLocalResult, redis::RedisError> {
     let redis_result = get_from_redis_through_etag_helper(key, etag, conn)?;
-    if redis_result.is_empty() {
+    if unlikely(redis_result.is_empty()) {
         Ok(GetThroughLocalResult::None)
-    } else if redis_result.get("etag").unwrap() == "-1" && redis_result.get("val").unwrap() == "" {
+    } else if likely(redis_result.get("etag").unwrap() == "-1") {
         Ok(GetThroughLocalResult::Unchanged)
     } else {
         let val = redis_result.get("val").unwrap().to_string();
@@ -180,6 +183,7 @@ fn get_through_local_helper(
     }
 }
 
+#[inline]
 fn get_from_redis_through_etag_helper(
     key: &str,
     etag: &String,
