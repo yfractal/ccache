@@ -11,6 +11,13 @@ redis = "0.25.2"
 bincode = "2.0.0-rc.3"
 base64 = "0.12.0"
 async-std = { version = "1.8.0", features = ["attributes"] }
+likely_stable = "0.1.2"
 
 [dev-dependencies]
 tide = "0.17.0-beta.1"
+criterion = "0.4.0"
+rand = "0.8.4"
+
+[[bench]]
+name = "benchmarks"
+harness = false
