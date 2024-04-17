@@ -189,10 +189,8 @@ fn get_from_redis_through_etag_helper(
     etag: &String,
     conn: &mut redis::Connection,
 ) -> Result<HashMap<String, String>, redis::RedisError> {
-    Script::new(GET_FROM_REDIS_SCRIPT)
-        .key(key)
-        .arg(etag.to_string())
-        .invoke(conn)
+    redis::cmd("HGETALLETAG").arg(key.to_string()).arg(etag.to_string()).query(conn)
+    // Script::new(GET_FROM_REDIS_SCRIPT).key(key).arg(etag.to_string()).invoke(conn)
 }
 
 #[cfg(test)]
