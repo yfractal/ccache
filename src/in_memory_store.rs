@@ -109,10 +109,10 @@ impl<T: Encode + Decode> InMemoryStore<T> {
         }
     }
 
-    fn insert_to_redis<V: Encode>(
+    fn insert_to_redis(
         &self,
         key: &str,
-        obj: V,
+        obj: Arc<T>,
         redis_conn: &mut redis::Connection,
     ) -> Result<String, redis::RedisError> {
         let val = self.encode_obj_to_string(obj).unwrap();
@@ -121,9 +121,9 @@ impl<T: Encode + Decode> InMemoryStore<T> {
         Ok(etag.clone())
     }
 
-    fn encode_obj_to_string<E: bincode::enc::Encode>(
+    fn encode_obj_to_string(
         &self,
-        val: E,
+        val: Arc<T>,
     ) -> Result<String, bincode::error::EncodeError> {
         let bytes = bincode::encode_to_vec(val, self.coder_config)?;
         Ok(base64::encode(bytes))
@@ -143,10 +143,10 @@ impl<T: Encode + Decode> InMemoryStore<T> {
         result
     }
 
-    fn decode_from_string<D: Decode>(
+    fn decode_from_string(
         &self,
         val: &String,
-    ) -> Result<(D, usize), bincode::error::DecodeError> {
+    ) -> Result<(T, usize), bincode::error::DecodeError> {
         let bytes = base64::decode(val).unwrap();
         bincode::decode_from_slice(&bytes, self.coder_config)
     }
