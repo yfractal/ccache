@@ -39,6 +39,7 @@ const INSERT_TO_REDIS_SCRIPT: &str = r#"
   return time
 "#;
 
+
 impl<T: Encode + Decode> InMemoryStore<T> {
     pub fn new() -> Self {
         Self {
@@ -76,7 +77,7 @@ impl<T: Encode + Decode> InMemoryStore<T> {
                     }
                     Ok(GetThroughLocalResult::None) => Ok(None),
                     Ok(GetThroughLocalResult::Pair(val, etag)) => {
-                        let (decoded, _): (T, usize) = self.decode_from_string(&val).unwrap();
+                        let (decoded, _): (T, usize) = Self::decode_from_string(&val, self.coder_config).unwrap();
                         let decoded_arc = Arc::new(decoded);
                         drop(data);
                         let mut data = self.data.write().unwrap();
@@ -94,7 +95,7 @@ impl<T: Encode + Decode> InMemoryStore<T> {
                     let val = redis_result.get("val").unwrap();
                     let etag = redis_result.get("etag").unwrap();
 
-                    let (decoded, _): (T, usize) = self.decode_from_string(val).unwrap();
+                    let (decoded, _): (T, usize) = Self::decode_from_string(val, self.coder_config).unwrap();
 
                     let decoded_arc = Arc::new(decoded);
                     // release read lock
@@ -129,6 +130,14 @@ impl<T: Encode + Decode> InMemoryStore<T> {
         Ok(base64::encode(bytes))
     }
 
+    fn decode_from_string(
+        val: &String,
+        config: config::Configuration,
+    ) -> Result<(T, usize), bincode::error::DecodeError> {
+        let bytes = base64::decode(val).unwrap();
+        bincode::decode_from_slice(&bytes, config)
+    }
+
     fn insert_to_redis_helper(
         &self,
         key: &str,
@@ -141,14 +150,6 @@ impl<T: Encode + Decode> InMemoryStore<T> {
             .invoke(redis_conn);
 
         result
-    }
-
-    fn decode_from_string(
-        &self,
-        val: &String,
-    ) -> Result<(T, usize), bincode::error::DecodeError> {
-        let bytes = base64::decode(val).unwrap();
-        bincode::decode_from_slice(&bytes, self.coder_config)
     }
 }
 
