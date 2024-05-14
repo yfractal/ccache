@@ -17,6 +17,7 @@ pub fn encode_decode_derive(input: TokenStream) -> TokenStream {
         impl EncodeDecode for #name {
         // impl<T: EncodeDecode> EncodeDecode for #name<T> {
             type Error = bincode::error::EncodeError;
+            type DecodeError = bincode::error::DecodeError;
             type Config = bincode::config::Configuration; // Use the config type provided by the attribute
 
             fn encode_to_string(&self, config: Self::Config) -> Result<String, Self::Error> {
@@ -24,8 +25,9 @@ pub fn encode_decode_derive(input: TokenStream) -> TokenStream {
                 Ok(base64::encode(bytes))
             }
 
-            fn decode_from_string(val: &String, config: Self::Config) -> Result<String, Self::Error> {
-                Ok("str".to_string())
+            fn decode_from_string(val: &String, config: Self::Config) -> Result<(Self, usize), Self::DecodeError> {
+                let bytes = base64::decode(val).unwrap();
+                bincode::decode_from_slice(&bytes, config)
             }
         }
     };
