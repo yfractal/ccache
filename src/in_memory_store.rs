@@ -39,7 +39,6 @@ const INSERT_TO_REDIS_SCRIPT: &str = r#"
   return time
 "#;
 
-
 impl<T: Encode + Decode> InMemoryStore<T> {
     pub fn new() -> Self {
         Self {
@@ -122,10 +121,7 @@ impl<T: Encode + Decode> InMemoryStore<T> {
         Ok(etag.clone())
     }
 
-    fn encode_obj_to_string(
-        &self,
-        val: Arc<T>,
-    ) -> Result<String, bincode::error::EncodeError> {
+    fn encode_obj_to_string(&self, val: Arc<T>) -> Result<String, bincode::error::EncodeError> {
         let bytes = bincode::encode_to_vec(val, self.coder_config)?;
         Ok(base64::encode(bytes))
     }
@@ -190,7 +186,10 @@ fn get_from_redis_through_etag_helper(
     etag: &String,
     conn: &mut redis::Connection,
 ) -> Result<HashMap<String, String>, redis::RedisError> {
-    redis::cmd("HGETALLETAG").arg(key.to_string()).arg(etag.to_string()).query(conn)
+    redis::cmd("HGETALLETAG")
+        .arg(key.to_string())
+        .arg(etag.to_string())
+        .query(conn)
     // Script::new(GET_FROM_REDIS_SCRIPT).key(key).arg(etag.to_string()).invoke(conn)
 }
 
