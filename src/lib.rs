@@ -14,7 +14,9 @@ trait EncodeDecode {
     fn decode_from_string(val: &String, config: Self::Config) -> Result<(Self, usize), Self::DecodeError> where Self: Sized;
 }
 
-#[derive(Encode, Decode, EncodeDecode)]
+#[derive(Encode, Decode)]
+#[derive(EncodeDecode)]
+#[encode_decode(lan = "ruby")]
 pub struct Store2{
     a: bool
 }
