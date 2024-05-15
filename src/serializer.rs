@@ -1,12 +1,15 @@
-pub trait Serializer {
-    type Error;
-    type DecodeError;
+use std::fmt::Debug;
+
+pub trait Serializable {
+    type Error: Debug;
+    type DecodeError: Debug;
     type Config;
 
-    fn encode_to_string(&self, config: Self::Config) -> Result<String, Self::Error>;
+    fn config() -> Self::Config;
+    fn encode_to_string(&self, config: &Self::Config) -> Result<String, Self::Error>;
     fn decode_from_string(
         val: &String,
-        config: Self::Config,
+        config: &Self::Config,
     ) -> Result<(Self, usize), Self::DecodeError>
     where
         Self: Sized;
@@ -14,12 +17,11 @@ pub trait Serializer {
 
 #[cfg(test)]
 mod serializer_tests {
-    use crate::serializer::Serializer;
-    use bincode::{config, Decode, Encode};
-    use derive::Serializer;
+    use crate::serializer::Serializable;
+    use bincode::{Decode, Encode};
+    use derive::Serializable;
 
-    #[derive(Encode, Decode, Serializer)]
-    #[encode_decode(lan = "ruby")]
+    #[derive(Encode, Decode, Serializable)]
     pub struct Struct {
         a: bool,
     }
@@ -33,11 +35,11 @@ mod serializer_tests {
     #[test]
     fn test_rust_serializer() {
         let s: Struct = Struct::new();
-        let config = config::standard();
-        let encoded = s.encode_to_string(config).unwrap();
+        let config = Struct::config();
+        let encoded = s.encode_to_string(&config).unwrap();
         assert_eq!("AQ==", encoded);
 
-        let (decoded, _) = Struct::decode_from_string(&encoded, config).unwrap();
+        let (decoded, _) = Struct::decode_from_string(&encoded, &config).unwrap();
         assert_eq!(decoded.a, true);
     }
 }
