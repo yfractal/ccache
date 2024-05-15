@@ -2,7 +2,7 @@ extern crate proc_macro;
 use darling::FromDeriveInput;
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, Meta, NestedMeta};
+use syn::{parse_macro_input, DeriveInput};
 
 #[derive(FromDeriveInput, Default)]
 #[darling(default, attributes(encode_decode))]
@@ -49,24 +49,25 @@ pub fn encode_decode_derive(input: TokenStream) -> TokenStream {
     } else {
         let expanded = quote! {
             impl Serializable for #name {
-                // impl<T: EncodeDecode> EncodeDecode for #name<T> {
-                type Error = bincode::error::EncodeError;
-                type DecodeError = bincode::error::DecodeError;
-                type Config = bincode::config::Configuration; // Use the config type provided by the attribute
+                type Error = ();
+                type DecodeError = ();
+                type Config = ();
 
                 fn encode_to_string(&self, config: &Self::Config) -> Result<String, Self::Error> {
-                    println!("other encode_to_string");
-                    let bytes = bincode::encode_to_vec(&self, *config)?;
-                    Ok(base64::encode(bytes))
+                    let any_obj = rutie::AnyObject::from(self.value);
+                    let rv = rutie::Marshal::dump(any_obj, rutie::NilClass::new().into()).to_string();
+
+                    Ok(rv)
                 }
 
                 fn decode_from_string(val: &String, config: &Self::Config) -> Result<(Self, usize), Self::DecodeError> {
-                    let bytes = base64::decode(val).unwrap();
-                    bincode::decode_from_slice(&bytes, *config)
+                    let any_obj = rutie::Marshal::load(RString::new(val));
+                    let obj = Self{value: any_obj.value()};
+                    Ok((obj, 0))
                 }
 
                 fn config() -> Self::Config {
-                    bincode::config::Configuration::default()
+                    ()
                 }
             }
         };
@@ -75,21 +76,4 @@ pub fn encode_decode_derive(input: TokenStream) -> TokenStream {
     }
 
     // Return the generated implementation as a token stream
-}
-
-// Helper function to extract the Config type from the encode_decode_config attribute
-fn extract_type(field: &str, attrs: &[syn::Attribute]) -> syn::Type {
-    for attr in attrs {
-        if let Ok(meta) = attr.parse_meta() {
-            if let Meta::List(list) = meta {
-                if list.path.is_ident(field) {
-                    if let Some(NestedMeta::Meta(Meta::Path(path))) = list.nested.first() {
-                        return syn::parse_quote!(#path);
-                    }
-                }
-            }
-        }
-    }
-    // Default to `()` if no encode_decode_config attribute is found
-    syn::parse_quote!(())
 }
