@@ -1,24 +1,25 @@
-use nimbus::in_memory_store::InMemoryStore;
-
 use bincode::{Decode, Encode};
+use derive::Serializable;
+use nimbus::in_memory_store::InMemoryStore;
+use nimbus::serializer::Serializable;
 use std::sync::{Arc, Mutex};
 use tide::Request;
 
-#[derive(Encode, Decode, PartialEq, Debug, Clone)]
+#[derive(Encode, Decode, Serializable, PartialEq, Debug, Clone)]
 struct Entity {
     x: f32,
     y: f32,
 }
 
-#[derive(Encode, Decode, PartialEq, Debug, Clone)]
+#[derive(Encode, Decode, Serializable, PartialEq, Debug, Clone)]
 struct World(Vec<Entity>);
 
-struct AppState<T: Encode + Decode> {
+struct AppState<T: Serializable> {
     in_memory_store: Arc<InMemoryStore<T>>,
     redis_conn: Arc<Mutex<redis::Connection>>,
 }
 
-impl<T: Encode + Decode> AppState<T> {
+impl<T: Serializable> AppState<T> {
     pub fn new() -> Self {
         let client = redis::Client::open("redis://127.0.0.1/").unwrap();
         let redis_conn = client.get_connection().unwrap();
