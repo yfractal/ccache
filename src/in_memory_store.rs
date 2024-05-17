@@ -1,6 +1,4 @@
 use crate::serializer::Serializable;
-use bincode::{config, Decode, Encode};
-use derive::Serializable;
 use likely_stable::{if_likely, likely, unlikely};
 use redis::Script;
 use std::collections::HashMap;
@@ -26,13 +24,13 @@ pub struct InMemoryStore<T: Serializable> {
     pub coder_config: T::Config,
 }
 
-const GET_FROM_REDIS_SCRIPT: &str = r#"
-if (redis.call("HGET", KEYS[1], "etag") == ARGV[1]) then
-   return {"etag","-1"}
-else
-   return redis.call("HGETALL", KEYS[1])
-end
-"#;
+// const GET_FROM_REDIS_SCRIPT: &str = r#"
+// if (redis.call("HGET", KEYS[1], "etag") == ARGV[1]) then
+//    return {"etag","-1"}
+// else
+//    return redis.call("HGETALL", KEYS[1])
+// end
+// "#;
 
 const INSERT_TO_REDIS_SCRIPT: &str = r#"
   local time = redis.call('TIME')[1]
@@ -186,6 +184,8 @@ fn get_from_redis_through_etag_helper(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bincode::{Decode, Encode};
+    use derive::Serializable;
     impl<T: Serializable> InMemoryStore<T> {
         pub fn delete_etag(&self, key: &str) {
             let mut data = self.data.write().unwrap();

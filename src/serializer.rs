@@ -20,6 +20,21 @@ mod serializer_tests {
     use crate::serializer::Serializable;
     use bincode::{Decode, Encode};
     use derive::Serializable;
+    use rutie::{AnyObject, Class, Marshal, NilClass, Object, RString, VM};
+
+    #[derive(Serializable)]
+    #[encode_decode(lan = "ruby")]
+    pub struct RubyObject {
+        pub value: rutie::types::Value,
+    }
+
+    impl RubyObject {
+        fn new() -> Self {
+            Self {
+                value: NilClass::new().value(),
+            }
+        }
+    }
 
     #[derive(Encode, Decode, Serializable)]
     pub struct Struct {
@@ -41,5 +56,16 @@ mod serializer_tests {
 
         let (decoded, _) = Struct::decode_from_string(&encoded, &config).unwrap();
         assert_eq!(decoded.a, true);
+    }
+
+    #[test]
+    fn test_ruby_serializer() {
+        VM::init();
+        let ruby_object = RubyObject::new();
+        let encoded = ruby_object.encode_to_string(&()).unwrap();
+        assert_eq!("\u{4}\u{8}0", encoded);
+
+        let (decoded, _) = RubyObject::decode_from_string(&encoded, &()).unwrap();
+        assert_eq!(decoded.value, ruby_object.value);
     }
 }
