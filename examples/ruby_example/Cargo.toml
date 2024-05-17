@@ -1,0 +1,17 @@
+[package]
+name = "ruby_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+nimbus = { path = "../../" }
+derive = { version = "0.1.0", path = "../../derive" }
+rutie = { path = "/Users/y/personal/mp/rutie/" }
+redis = "0.25.2"
+lazy_static = "1.4.0"
+
+[lib]
+name = "ruby_example"
+crate-type = ["dylib"]
