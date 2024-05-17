@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 ccache = { path = "../../" }
 derive = { version = "0.1.0", path = "../../derive" }
-rutie = { path = "/Users/y/personal/mp/rutie/" }
+rutie = { git = "https://github.com/yfractal/rutie.git", branch = "master"}
 redis = "0.25.2"
 lazy_static = "1.4.0"
 

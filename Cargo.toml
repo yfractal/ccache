@@ -20,4 +20,4 @@ derive = { version = "0.1.0", path = "derive" }
 tide = "0.17.0-beta.1"
 criterion = "0.4.0"
 rand = "0.8.4"
-rutie = { path = "/Users/y/personal/mp/rutie/" }
+rutie = { git = "https://github.com/yfractal/rutie.git", branch = "master"}
