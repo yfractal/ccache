@@ -17,10 +17,10 @@ pub trait Serializable {
 
 #[cfg(test)]
 mod serializer_tests {
-    use crate::serializer::Serializable;
+    use crate::serializable::Serializable;
     use bincode::{Decode, Encode};
     use derive::Serializable;
-    use rutie::{AnyObject, Class, Marshal, NilClass, Object, RString, VM};
+    use rutie::{NilClass, Object, RString, VM};
 
     #[derive(Serializable)]
     #[encode_decode(lan = "ruby")]

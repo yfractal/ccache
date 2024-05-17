@@ -1,7 +1,7 @@
 use bincode::{Decode, Encode};
+use ccache::in_memory_store::InMemoryStore;
+use ccache::serializable::Serializable;
 use derive::Serializable;
-use nimbus::in_memory_store::InMemoryStore;
-use nimbus::serializer::Serializable;
 use std::sync::{Arc, Mutex};
 use tide::Request;
 

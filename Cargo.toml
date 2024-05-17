@@ -1,7 +1,7 @@
 workspace = { members = ["derive"], exclude = ["examples/ruby_example"] }
 
 [package]
-name = "nimbus"
+name = "ccache"
 version = "0.1.0"
 edition = "2021"
 
@@ -20,9 +20,4 @@ derive = { version = "0.1.0", path = "derive" }
 tide = "0.17.0-beta.1"
 criterion = "0.4.0"
 rand = "0.8.4"
-rutie = { path = "/Users/y/personal/mp/rutie/" }
-
-
-[[bench]]
-name = "benchmarks"
-harness = false
+rutie = { git = "https://github.com/yfractal/rutie.git", branch = "master"}
