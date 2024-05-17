@@ -711,6 +711,7 @@ name = "ruby_example"
 version = "0.1.0"
 dependencies = [
  "derive",
+ "lazy_static",
  "nimbus",
  "redis",
  "rutie",

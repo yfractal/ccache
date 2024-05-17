@@ -1,11 +1,12 @@
 #[macro_use]
 extern crate rutie;
+extern crate lazy_static;
 
-use rutie::{Class, Boolean, Object, RString, VM};
+use rutie::{AnyObject, Class, Object, RString};
 
 use derive::Serializable;
-use nimbus::in_memory_store::InMemoryStore;
 use nimbus::serializer::Serializable;
+
 
 #[derive(Serializable)]
 #[encode_decode(lan = "ruby")]
@@ -13,39 +14,73 @@ pub struct RubyObject {
     pub value: rutie::types::Value,
 }
 
-class!(RutieExample);
+pub struct Store {
+    inner: nimbus::in_memory_store::InMemoryStore<RubyObject>,
+    redis_client: redis::Connection,
+}
+
+impl Store {
+    fn new(redis_url: &str) -> Self {
+        Store {
+            inner: nimbus::in_memory_store::InMemoryStore::new(),
+            redis_client: redis::Client::open(redis_url)
+                .unwrap()
+                .get_connection()
+                .unwrap(),
+        }
+    }
+}
+
+wrappable_struct!(Store, StoreWrapper, STORE_WRAPPER);
+class!(RubyStore);
 
 methods!(
-    RutieExample,
-    _rtself,
+    RubyStore,
+    rtself,
+    fn ruby_new(redis_host: RString) -> AnyObject {
+        let redis_host = redis_host.unwrap().to_string();
+        let store = Store::new(&redis_host);
+        Class::from_existing("RubyStore").wrap_data(store, &*STORE_WRAPPER)
+    },
+    fn ruby_insert(key: RString, obj: AnyObject) -> RString {
+        let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
+        let ruby_object = RubyObject {
+            value: obj.unwrap().value(),
+        };
 
-    fn pub_reverse(input: RString) -> RString {
-        let ruby_string = input.
-          map_err(|e| VM::raise_ex(e) ).
-          unwrap();
+        let etag = rbself
+            .inner
+            .insert(key.unwrap().to_str(), ruby_object, &mut rbself.redis_client)
+            .unwrap();
+        RString::new_utf8(&etag.to_string().chars().rev().collect::<String>())
+    },
+    fn ruby_get(key: RString) -> AnyObject {
+        let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
+        let object = rbself
+            .inner
+            .get(key.unwrap().to_str(), &mut rbself.redis_client)
+            .unwrap()
+            .unwrap();
 
-        RString::new_utf8(
-          &ruby_string.
-          to_string().
-          chars().
-          rev().
-          collect::<String>()
-        )
+        AnyObject::from(object.value)
     }
 );
 
 #[allow(non_snake_case)]
 #[no_mangle]
 pub extern "C" fn Init_ruby_example() {
-    // RutieExample.reverse "abc"
-    Class::new("RutieExample", None).define(|klass| {
-        klass.def_self("reverse", pub_reverse);
+    Class::new("RubyStore", None).define(|klass| {
+        klass.def_self("new", ruby_new);
+        klass.def("insert", ruby_insert);
+        klass.def("get", ruby_get);
     });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rutie::{Boolean, VM};
+    use nimbus::in_memory_store::InMemoryStore;
 
     #[test]
     fn it_works() {

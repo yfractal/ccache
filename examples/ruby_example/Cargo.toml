@@ -10,6 +10,7 @@ nimbus = { path = "../../" }
 derive = { version = "0.1.0", path = "../../derive" }
 rutie = { path = "/Users/y/personal/mp/rutie/" }
 redis = "0.25.2"
+lazy_static = "1.4.0"
 
 [lib]
 name = "ruby_example"
