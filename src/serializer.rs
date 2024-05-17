@@ -60,12 +60,12 @@ mod serializer_tests {
 
     #[test]
     fn test_ruby_serializer() {
-        let s: Struct = Struct::new();
-        let config = Struct::config();
-        let encoded = s.encode_to_string(&config).unwrap();
-        assert_eq!("AQ==", encoded);
+        VM::init();
+        let ruby_object = RubyObject::new();
+        let encoded = ruby_object.encode_to_string(&()).unwrap();
+        assert_eq!("\u{4}\u{8}0", encoded);
 
-        let (decoded, _) = Struct::decode_from_string(&encoded, &config).unwrap();
-        assert_eq!(decoded.a, true);
+        let (decoded, _) = RubyObject::decode_from_string(&encoded, &()).unwrap();
+        assert_eq!(decoded.value, ruby_object.value);
     }
 }
