@@ -514,6 +514,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2678b2e3449475e95b0aa6f9b506a28e61b3dc8996592b983695e8ebb58a8b41"
 
 [[package]]
+name = "ccache"
+version = "0.1.0"
+dependencies = [
+ "async-std",
+ "base64 0.12.3",
+ "bincode 2.0.0-rc.3",
+ "criterion",
+ "derive",
+ "likely_stable",
+ "once_cell",
+ "rand 0.8.5",
+ "redis",
+ "rutie",
+ "tide",
+]
+
+[[package]]
 name = "cfg-if"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1353,23 +1370,6 @@ name = "memchr"
 version = "2.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c8640c5d730cb13ebd907d8d04b52f55ac9a2eec55b440c8892f40d56c76c1d"
-
-[[package]]
-name = "nimbus"
-version = "0.1.0"
-dependencies = [
- "async-std",
- "base64 0.12.3",
- "bincode 2.0.0-rc.3",
- "criterion",
- "derive",
- "likely_stable",
- "once_cell",
- "rand 0.8.5",
- "redis",
- "rutie",
- "tide",
-]
 
 [[package]]
 name = "num-traits"

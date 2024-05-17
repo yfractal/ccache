@@ -1,4 +1,4 @@
-use crate::serializer::Serializable;
+use crate::serializable::Serializable;
 use likely_stable::{if_likely, likely, unlikely};
 use redis::Script;
 use std::collections::HashMap;
@@ -22,6 +22,12 @@ impl<T: Serializable> Data<T> {
 pub struct InMemoryStore<T: Serializable> {
     data: RwLock<Data<T>>,
     pub coder_config: T::Config,
+}
+
+enum GetThroughLocalResult {
+    None,
+    Unchanged,
+    Pair(String, String),
 }
 
 // const GET_FROM_REDIS_SCRIPT: &str = r#"
@@ -95,12 +101,10 @@ impl<T: Serializable> InMemoryStore<T> {
                     let etag = redis_result.get("etag").unwrap();
 
                     let (decoded, _): (T, usize) = T::decode_from_string(&val, &self.coder_config).unwrap();
-
                     let decoded_arc = Arc::new(decoded);
-                    // release read lock
-                    drop(data);
-                    // acquire write lock
-                    let mut data = self.data.write().unwrap();
+
+                    drop(data); // release read lock
+                    let mut data = self.data.write().unwrap(); // acquire write lock
                     data.etags.insert(key.to_string(), etag.to_string());
                     data.structs.insert(key.to_string(), decoded_arc.clone());
                     Ok(Some(decoded_arc))
@@ -144,12 +148,6 @@ fn get_from_redis_helper(
     redis::cmd("HGETALL").arg(key.to_string()).query(conn)
 }
 
-enum GetThroughLocalResult {
-    None,
-    Unchanged,
-    Pair(String, String),
-}
-
 #[inline]
 fn get_through_local_helper(
     key: &str,
@@ -174,6 +172,7 @@ fn get_from_redis_through_etag_helper(
     etag: &String,
     conn: &mut redis::Connection,
 ) -> Result<HashMap<String, String>, redis::RedisError> {
+    // hgetall with etag which is a customed method
     redis::cmd("HGETALLETAG")
         .arg(key.to_string())
         .arg(etag.to_string())

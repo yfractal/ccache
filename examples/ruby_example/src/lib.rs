@@ -4,9 +4,8 @@ extern crate lazy_static;
 
 use rutie::{AnyObject, Class, Object, RString};
 
+use ccache::serializable::Serializable;
 use derive::Serializable;
-use nimbus::serializer::Serializable;
-
 
 #[derive(Serializable)]
 #[encode_decode(lan = "ruby")]
@@ -15,14 +14,14 @@ pub struct RubyObject {
 }
 
 pub struct Store {
-    inner: nimbus::in_memory_store::InMemoryStore<RubyObject>,
+    inner: ccache::in_memory_store::InMemoryStore<RubyObject>,
     redis_client: redis::Connection,
 }
 
 impl Store {
     fn new(redis_url: &str) -> Self {
         Store {
-            inner: nimbus::in_memory_store::InMemoryStore::new(),
+            inner: ccache::in_memory_store::InMemoryStore::new(),
             redis_client: redis::Client::open(redis_url)
                 .unwrap()
                 .get_connection()
@@ -79,8 +78,8 @@ pub extern "C" fn Init_ruby_example() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ccache::in_memory_store::InMemoryStore;
     use rutie::{Boolean, VM};
-    use nimbus::in_memory_store::InMemoryStore;
 
     #[test]
     fn it_works() {

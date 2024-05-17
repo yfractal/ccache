@@ -1,5 +1,5 @@
+use ccache::in_memory_store::InMemoryStore;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use nimbus::in_memory_store::InMemoryStore;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 
