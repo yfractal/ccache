@@ -1,10 +1,13 @@
 use crate::serializable::Serializable;
-use likely_stable::{if_likely, likely, unlikely};
-use probe::probe;
-use redis::Script;
+use crate::trace;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
+
+use likely_stable::{if_likely, likely, unlikely};
+use probe::probe;
+use redis::Script;
 use uuid::Uuid;
 
 pub struct Data<T: Serializable> {
@@ -63,7 +66,11 @@ impl<T: Serializable> InMemoryStore<T> {
     ) -> Result<String, redis::RedisError> {
         let uuid = Uuid::new_v4();
 
-        probe!(ccache, store, "insert    ".as_ptr(), "start".as_ptr(), key.as_ptr(), uuid.to_string().as_ptr());
+        probe!(
+            ccache,
+            store,
+            trace::Event::new("insert", "start", key, &uuid.to_string()).as_ptr()
+        );
 
         let val_arc = Arc::new(val);
         let etag = self.insert_to_redis(uuid, key, val_arc.clone(), redis_conn)?;
@@ -71,7 +78,11 @@ impl<T: Serializable> InMemoryStore<T> {
         data.etags.insert(key.to_string(), etag.clone());
         data.structs.insert(key.to_string(), val_arc.clone());
 
-        probe!(ccache, store, "insert   ".as_ptr(), "end  ".as_ptr(), key.as_ptr(), uuid.to_string().as_ptr());
+        probe!(
+            ccache,
+            store,
+            trace::Event::new("insert", "end", key, &uuid.to_string()).as_ptr()
+        );
 
         Ok(etag)
     }
@@ -84,7 +95,11 @@ impl<T: Serializable> InMemoryStore<T> {
     ) -> Result<Option<Arc<T>>, redis::RedisError> {
         let uuid = Uuid::new_v4();
 
-        probe!(ccache, store, "get       ".as_ptr(), "start".as_ptr(), key.as_ptr(), uuid.to_string().as_ptr());
+        probe!(
+            ccache,
+            store,
+            trace::Event::new("get", "start", key, &uuid.to_string()).as_ptr()
+        );
 
         let data = self.data.read().unwrap();
 
@@ -93,12 +108,13 @@ impl<T: Serializable> InMemoryStore<T> {
                     Ok(GetThroughLocalResult::Unchanged) => {
                         let obj = data.structs.get(key).unwrap().clone();
 
-                        probe!(ccache, store, "get       ".as_ptr(), "end  ".as_ptr(), key.as_ptr(), uuid.to_string().as_ptr());
+                        probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
 
                         Ok(Some(obj.clone()))
                     }
                     Ok(GetThroughLocalResult::None) => {
-                        probe!(get, end, 1);
+                        probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
+
                         Ok(None)
                     },
                     Ok(GetThroughLocalResult::Pair(val, etag)) => {
@@ -109,12 +125,12 @@ impl<T: Serializable> InMemoryStore<T> {
                         data.etags.insert(key.to_string(), etag.to_string());
                         data.structs.insert(key.to_string(), decoded_arc.clone());
 
-                        probe!(ccache, store, "get       ".as_ptr(), "end  ".as_ptr(), key.as_ptr(), uuid.to_string().as_ptr());
+                        probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
 
                         Ok(Some(decoded_arc))
                     }
                     Err(e) => {
-                        probe!(ccache, store, "get       ".as_ptr(), "end  ".as_ptr(), key.as_ptr(), uuid.to_string().as_ptr());
+                        probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
 
                         Err(e)
                     },
@@ -122,7 +138,7 @@ impl<T: Serializable> InMemoryStore<T> {
             } else {
                 let redis_result = get_from_redis_request(uuid, key, redis_conn)?;
                 if redis_result.is_empty() {
-                    probe!(ccache, store, "get       ".as_ptr(), "end  ".as_ptr(), key.as_ptr(), uuid.to_string().as_ptr());
+                    probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
 
                     Ok(None) // redis missed
                 } else {
@@ -137,7 +153,7 @@ impl<T: Serializable> InMemoryStore<T> {
                     data.etags.insert(key.to_string(), etag.to_string());
                     data.structs.insert(key.to_string(), decoded_arc.clone());
 
-                    probe!(ccache, store, "get       ".as_ptr(), "end  ".as_ptr(), key.as_ptr(), uuid.to_string().as_ptr());
+                    probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
 
                     Ok(Some(decoded_arc))
                 }
@@ -152,12 +168,20 @@ impl<T: Serializable> InMemoryStore<T> {
         obj: Arc<T>,
         redis_conn: &mut redis::Connection,
     ) -> Result<String, redis::RedisError> {
-        probe!(ccache, store, "i_redis   ".as_ptr(), "start".as_ptr(), key.as_ptr(), uuid.to_string().as_ptr());
+        probe!(
+            ccache,
+            store,
+            trace::Event::new("insert_to_redis", "start", key, &uuid.to_string()).as_ptr()
+        );
 
         let val = obj.encode_to_string(&self.coder_config).unwrap();
         let etag = self.insert_to_redis_request(uuid, key, val, redis_conn)?;
 
-        probe!(ccache, store, "i_redis   ".as_ptr(), "end  ".as_ptr(), key.as_ptr(), uuid.to_string().as_ptr());
+        probe!(
+            ccache,
+            store,
+            trace::Event::new("insert_to_redis", "end", key, &uuid.to_string()).as_ptr()
+        );
 
         Ok(etag.clone())
     }
@@ -169,15 +193,22 @@ impl<T: Serializable> InMemoryStore<T> {
         val: String,
         redis_conn: &mut redis::Connection,
     ) -> Result<String, redis::RedisError> {
-        probe!(ccache, store, "i_redis_r ".as_ptr(), "start".as_ptr(), key.as_ptr(), uuid.to_string().as_ptr());
-
+        probe!(
+            ccache,
+            store,
+            trace::Event::new("insert_to_redis_request", "start", key, &uuid.to_string()).as_ptr()
+        );
 
         let result: Result<String, redis::RedisError> = Script::new(INSERT_TO_REDIS_SCRIPT)
             .key(key)
             .arg(val)
             .invoke(redis_conn);
 
-        probe!(ccache, store, "i_redis_r ".as_ptr(), "end  ".as_ptr(), key.as_ptr(), uuid.to_string().as_ptr());
+        probe!(
+            ccache,
+            store,
+            trace::Event::new("insert_to_redis_request", "end", key, &uuid.to_string()).as_ptr()
+        );
 
         result
     }
@@ -188,11 +219,19 @@ fn get_from_redis_request(
     key: &str,
     conn: &mut redis::Connection,
 ) -> Result<HashMap<String, String>, redis::RedisError> {
-    probe!(ccache, store, "g_redis_r ".as_ptr(), "start".as_ptr(), key.as_ptr(), uuid.to_string().as_ptr());
+    probe!(
+        ccache,
+        store,
+        trace::Event::new("get_from_redis_request", "start", key, &uuid.to_string()).as_ptr()
+    );
 
     let result = redis::cmd("HGETALL").arg(key.to_string()).query(conn);
 
-    probe!(ccache, store, "g_redis_r ".as_ptr(), "end  ".as_ptr(), key.as_ptr(), uuid.to_string().as_ptr());
+    probe!(
+        ccache,
+        store,
+        trace::Event::new("get_from_redis_request", "end", key, &uuid.to_string()).as_ptr()
+    );
 
     result
 }
@@ -223,7 +262,17 @@ fn get_from_redis_through_etag(
     etag: &String,
     conn: &mut redis::Connection,
 ) -> Result<HashMap<String, String>, redis::RedisError> {
-    probe!(ccache, store, "get_r_etag".as_ptr(), "start".as_ptr(), key.as_ptr(), uuid.to_string().as_ptr());
+    probe!(
+        ccache,
+        store,
+        trace::Event::new(
+            "get_from_redis_through_etag",
+            "start",
+            key,
+            &uuid.to_string()
+        )
+        .as_ptr()
+    );
 
     // NOTICE HGETALLETAG is in a self build Redis, it works like GET_FROM_REDIS_SCRIPT
     // see: https://github.com/yfractal/redis/commit/629fbc49a7f6167a6f7980e932e7f3554212b031
@@ -231,9 +280,16 @@ fn get_from_redis_through_etag(
     //     .arg(key.to_string())
     //     .arg(etag.to_string())
     //     .query(conn);
-    let result = Script::new(GET_FROM_REDIS_SCRIPT).key(key).arg(etag.to_string()).invoke(conn);
+    let result = Script::new(GET_FROM_REDIS_SCRIPT)
+        .key(key)
+        .arg(etag.to_string())
+        .invoke(conn);
 
-    probe!(ccache, store, "get_r_etag".as_ptr(), "end".as_ptr(), key.as_ptr(), uuid.to_string().as_ptr());
+    probe!(
+        ccache,
+        store,
+        trace::Event::new("get_from_redis_through_etag", "end", key, &uuid.to_string()).as_ptr()
+    );
 
     result
 }
