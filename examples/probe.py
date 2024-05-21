@@ -1,16 +1,16 @@
 from bcc import BPF, USDT
 import ctypes as ct
+import sys
 
 bpf_program = """
 #include <uapi/linux/ptrace.h>
 #include <linux/sched.h>
 
 struct data_t {
-    char method[10];
-    char event[4];
-    char key[64];
-    char trace_id[64];
-    u64 ts;
+    char method[32];
+    char event[16];
+    char key[32];
+    char trace_id[32];
 };
 
 BPF_PERF_OUTPUT(events);
@@ -18,24 +18,10 @@ BPF_PERF_OUTPUT(events);
 int probe(struct pt_regs *ctx) {
     struct data_t data = {};
 
-    u64 method_addr = 0;
-    u64 event_addr = 0;
-    u64 key_addr = 0;
-    u64 trace_id_addr = 0;
+    u64 trace_addr = 0;
 
-    bpf_usdt_readarg(1, ctx, &method_addr);
-    bpf_probe_read_user(&data.method, sizeof(data.method), (void *)method_addr);
-
-    bpf_usdt_readarg(2, ctx, &event_addr);
-    bpf_probe_read_user(&data.event, sizeof(data.event), (void *)event_addr);
-
-    bpf_usdt_readarg(3, ctx, &key_addr);
-    bpf_probe_read_user(&data.key, sizeof(data.key), (void *)key_addr);
-
-    bpf_usdt_readarg(4, ctx, &trace_id_addr);
-    bpf_probe_read_user(&data.trace_id, sizeof(data.trace_id), (void *)trace_id_addr);
-
-    data.ts = bpf_ktime_get_ns();
+    bpf_usdt_readarg(1, ctx, &trace_addr);
+    bpf_probe_read_user(&data, sizeof(data), (void *)trace_addr);
 
     events.perf_submit(ctx, &data, sizeof(data));
 
@@ -43,8 +29,14 @@ int probe(struct pt_regs *ctx) {
 }
 """
 
+if len(sys.argv) > 1:
+    program = sys.argv[1]
+else:
+    print('Please provide program path, such as \'sudo python3 probe.py /home/ec2-user/ccache/target/release/examples/http_server\'')
+    exit()
+
 # Attach to the running process with USDT probes
-usdt = USDT(path="/home/ec2-user/ccache/target/release/examples/http_server")
+usdt = USDT(path=program)
 usdt.enable_probe(probe="store", fn_name="probe")
 # Load and attach BPF program
 b = BPF(text=bpf_program, usdt_contexts=[usdt])
@@ -52,11 +44,10 @@ b = BPF(text=bpf_program, usdt_contexts=[usdt])
 # Define output data structure in Python
 class Data(ct.Structure):
     _fields_ = [
-        ("method", ct.c_char * 10),
-        ("event", ct.c_char * 5),
-        ("key", ct.c_char * 64),
-        ("trace_id", ct.c_char * 64),
-        ("ts", ct.c_ulonglong)
+        ("method", ct.c_char * 32),
+        ("event", ct.c_char * 16),
+        ("key", ct.c_char * 32),
+        ("trace_id", ct.c_char * 32),
     ]
 
 # Callback to handle events
@@ -65,8 +56,7 @@ def print_event(cpu, data, size):
     print(f"method: {event.method.decode('utf-8', 'replace')}")
     print(f"event: {event.event.decode('utf-8', 'replace')}")
     print(f"key: {event.key.decode('utf-8', 'replace')}")
-    print(f"trace_id: {event.trace_id.decode('utf-8', 'replace')}")
-    print(f"ts: {event.ts}")
+    print(f"trace_id: {event.trace_id.decode('utf-8', 'replace')}\n")
 
 # Open perf buffer
 b["events"].open_perf_buffer(print_event)
