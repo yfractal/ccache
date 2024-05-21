@@ -520,10 +520,12 @@ dependencies = [
  "derive",
  "likely_stable",
  "once_cell",
+ "probe",
  "rand 0.8.5",
  "redis",
  "rutie",
  "tide",
+ "uuid",
 ]
 
 [[package]]
@@ -1550,6 +1552,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
 
 [[package]]
+name = "probe"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8e2d2444b730c8f027344c60f9e1f1554d7a3342df9bdd425142ed119a6e5a3"
+
+[[package]]
 name = "proc-macro-hack"
 version = "0.5.20+deprecated"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2330,6 +2338,15 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
+]
+
+[[package]]
+name = "uuid"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a183cf7feeba97b4dd1c0d46788634f6221d87fa961b305bed08c851829efcc0"
+dependencies = [
+ "getrandom 0.2.14",
 ]
 
 [[package]]
