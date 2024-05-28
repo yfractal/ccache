@@ -4,3 +4,5 @@ git_source(:github) {|repo_name| "https://github.com/#{repo_name}" }
 
 # Specify your gem's dependencies in ccache_bench.gemspec
 gemspec
+
+gem 'cpu_time', git: 'https://github.com/yfractal/cpu_time.git'

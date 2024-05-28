@@ -1,0 +1,36 @@
+#!/usr/bin/env ruby
+
+require "bundler/setup"
+require "ccache_bench"
+
+redis_url = ARGV[0]
+
+benchmarker = CcacheBench::Benchmarker.new(redis_url, 16, 5)
+benchmarker.delete
+benchmarker.insert_to_redis
+benchmarker.benchmark
+sleep 1
+
+benchmarker = CcacheBench::Benchmarker.new(redis_url, 32, 5)
+benchmarker.delete
+benchmarker.insert_to_redis
+benchmarker.benchmark
+sleep 1
+
+benchmarker = CcacheBench::Benchmarker.new(redis_url, 64, 5)
+benchmarker.delete
+benchmarker.insert_to_redis
+benchmarker.benchmark
+sleep 1
+
+benchmarker = CcacheBench::Benchmarker.new(redis_url, 128, 5)
+benchmarker.delete
+benchmarker.insert_to_redis
+benchmarker.benchmark
+sleep 1
+
+benchmarker = CcacheBench::Benchmarker.new(redis_url, 256, 5)
+benchmarker.delete
+benchmarker.insert_to_redis
+benchmarker.benchmark
+sleep 1
