@@ -6,18 +6,13 @@ PATH
 GEM
   remote: https://rubygems.org/
   specs:
-    activesupport (6.1.7.7)
-      concurrent-ruby (~> 1.0, >= 1.0.2)
-      i18n (>= 1.6, < 2)
-      minitest (>= 5.1)
-      tzinfo (~> 2.0)
-      zeitwerk (~> 2.3)
-    concurrent-ruby (1.2.3)
+    connection_pool (2.4.1)
     diff-lcs (1.5.1)
-    i18n (1.14.5)
-      concurrent-ruby (~> 1.0)
-    minitest (5.23.1)
     rake (10.5.0)
+    redis (5.2.0)
+      redis-client (>= 0.22.0)
+    redis-client (0.22.2)
+      connection_pool
     rspec (3.13.0)
       rspec-core (~> 3.13.0)
       rspec-expectations (~> 3.13.0)
@@ -31,19 +26,16 @@ GEM
       diff-lcs (>= 1.2.0, < 2.0)
       rspec-support (~> 3.13.0)
     rspec-support (3.13.1)
-    tzinfo (2.0.6)
-      concurrent-ruby (~> 1.0)
-    zeitwerk (2.6.14)
 
 PLATFORMS
   ruby
 
 DEPENDENCIES
-  activesupport
-  bundler (~> 1.17)
+  bundler (~> 2.4.19)
   ccache_bench!
   rake (~> 10.0)
+  redis
   rspec (~> 3.0)
 
 BUNDLED WITH
-   1.17.2
+   2.4.19

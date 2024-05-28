@@ -1,106 +1,85 @@
 require "ccache_bench/version"
-require 'active_support/time'
 require 'zlib'
+require 'redis'
 
 module CcacheBench
-  class Record
-    attr_accessor :key, :val
-
-    def initialize(key, val)
-      @key, @val = key, val
-    end
-  end
-
-  class << self
-    def generate_records(records_count)
-      records = []
-      records_count.times do
-        key = random_string(8)
-        val = random_string(8)
-        records << Record.new(key, val)
-      end
-
-      records
+  class Benchmarker
+    def initialize(redis_url, records_count, repeat_times = 100)
+      @redis_url     = redis_url
+      @records_count = records_count
+      @repeat_times  = repeat_times
+      @redis_key     = "CcacheBench::Benchmarker::key"
     end
 
-    # CcacheBench.benchmark_records(1000)
-    #  500 ---> 0.49 ms
-    # 1000 ---> 0.76 ms
-    # 2000 ---> 1.27 ms
-    # 3000 ---> 1.92 ms
-    # 4000 ---> 2.44 ms
-    # 5000 ---> 3.02 ms
-    def benchmark_records(count)
-      records = Array.new(count) do
-        key = random_string(32)
-        val = random_string(32)
-
-        Record.new(key, val)
-      end
+    def insert_to_redis
+      records = Array.new(@records_count) { [rand(10000000), random_string(32), random_string(32)] }
 
       serialized = serialize(records)
-      # Zlib::Inflate.inflate(serialized)
 
-      ms = benchmark2(100, serialized) / 100 * 1000
-
-      puts "#{ms} ms"
+      redis = Redis.new(url: @redis_url)
+      redis.set(@redis_key, serialized)
     end
 
-    def benchmark2(n, value)
-      start_time = Time.now
+    def benchmark
+      benchmark_redis
 
-      n.times do
-        Marshal.load(Zlib::Inflate.inflate(value))
-      end
+      time = Array.new(@repeat_times) { read_from_redis }.sum / @repeat_times * 1000
+      puts "Read #{@records_count} records takes #{time} ms."
 
-      end_time = Time.now
-
-      end_time - start_time
+      time
     end
 
-    # CcacheBench.benchmark_time_zone(1000)
-    def benchmark_time_zone(count)
-      Time.zone = 'Eastern Time (US & Canada)'
-      times = Array.new(count) {|_| Time.zone.now }
-      ms = benchmark(100, times) / 100 * 1000
+    def read_from_redis
+      redis = Redis.new(:url => @redis_url)
+      t0 = Time.now
+      records = do_read_from_redis(redis)
+      t1 = Time.now
 
-      puts "#{ms} ms"
+      raise "records is nill" unless records
+
+      t1 - t0
     end
 
-    # CcacheBench.benchmark_string(10)
-    # CcacheBench.benchmark_string(100)
-    # CcacheBench.benchmark_string(1000)
-    # CcacheBench.benchmark_string(10000)
-    def benchmark_string(length)
-      str = random_string(length)
+    def benchmark_redis
+      redis = Redis.new(:url => @redis_url)
+      time = Array.new(@repeat_times) { do_benchmark_redis(redis) }.sum / @repeat_times * 1000
 
-      ms = benchmark(10, str) / 10 * 1000
-      puts "#{ms} ms"
+      puts "Redis empty key takes #{time} ms."
     end
 
-    def benchmark(n, obj)
-      start_time = Time.now
+    def delete
+      redis = Redis.new(:url => @redis_url)
 
-      n.times do
-        serialize(obj)
-      end
-
-      end_time = Time.now
-
-      end_time - start_time
+      redis.del(@redis_key)
     end
 
     private
+    def do_benchmark_redis(redis)
+      t0 = Time.now
+      result = redis.get("unexist_key")
+      t1 = Time.now
+
+      raise "should be nil" if result
+
+      t1 - t0
+    end
+
+    def do_read_from_redis(redis)
+      val = redis.get(@redis_key)
+
+      inflated = Zlib::Inflate.inflate(val)
+      Marshal.load(inflated)
+    end
+
+
     def serialize(obj)
-      Zlib::Deflate.deflate(Marshal.dump(obj))
-      # Marshal.dump(obj)
+      serialized = Marshal.dump(obj)
+
+      Zlib::Deflate.deflate(serialized)
     end
 
     def random_string(len)
       (0...len).map { (65 + rand(26)).chr }.join
     end
   end
-
-  class Error < StandardError; end
-  # Your code goes here...
 end
