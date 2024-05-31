@@ -45,26 +45,28 @@ pub trait Serializable2 {
     type DecodeError: Debug;
     type Config;
 
-    fn serialize(&self, config: &Self::Config) -> Result<Vec<u8>, Self::EncodeError>;
     fn config() -> Self::Config;
-
+    fn serialize(&self, config: &Self::Config) -> Result<Vec<u8>, Self::EncodeError>;
+    fn deserialize(
+        val: &Vec<u8>,
+        config: &Self::Config,
+    ) -> Result<(Self, usize), Self::DecodeError>
+    where
+        Self: Sized;
 }
 
 #[cfg(test)]
 mod serializer_tests {
+    use crate::serializable::EncodeError;
     use crate::serializable::Serializable;
     use crate::serializable::Serializable2;
-    use crate::serializable::EncodeError;
     use bincode::{Decode, Encode};
     use derive::Serializable;
     use derive::Serializable2;
     use rutie::{NilClass, Object, RString, VM};
     extern crate flate2;
-    use flate2::write::ZlibDecoder;
-    use flate2::write::ZlibEncoder;
     use flate2::Compression;
-    use std::io::{self, Write, Read};
-
+    use std::io::Write;
 
     #[derive(Serializable)]
     #[encode_decode(lan = "ruby")]
@@ -123,6 +125,21 @@ mod serializer_tests {
         let encoded = s.serialize(&config).unwrap();
         let expected: &[u8] = &[120, 156, 99, 4, 0, 0, 2, 0, 2];
         assert_eq!(expected, encoded);
+
+        let (decoded, _) = Struct2::deserialize(&encoded, &config).unwrap();
+        assert_eq!(decoded.a, true);
+    }
+
+    #[test]
+    fn test_ruby_serializer2() {
+        VM::init();
+        let ruby_object = RubyObject2::new();
+        let encoded = ruby_object.serialize(&()).unwrap();
+        let expected: &[u8] = &[120, 156, 99, 225, 48, 0, 0, 0, 79, 0, 61];
+        assert_eq!(expected, encoded);
+
+        let (decoded, _) = RubyObject2::deserialize(&encoded, &()).unwrap();
+        assert_eq!(decoded.value, ruby_object.value);
     }
 
     #[test]

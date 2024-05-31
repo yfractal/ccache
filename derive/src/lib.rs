@@ -35,6 +35,14 @@ pub fn encode_decode_derive2(input: TokenStream) -> TokenStream {
                     encoder.finish().map_err(Self::EncodeError::from)
                 }
 
+                fn deserialize(val: &Vec<u8>, config: &Self::Config) -> Result<(Self, usize), Self::DecodeError> {
+                    let mut writer = Vec::new();
+                    let mut z = flate2::write::ZlibDecoder::new(writer);
+                    z.write_all(&val[..]).unwrap();
+                    writer = z.finish().unwrap();
+                    bincode::decode_from_slice(&writer, *config)
+                }
+
                 fn config() -> Self::Config {
                     bincode::config::Configuration::default()
                 }
@@ -55,6 +63,19 @@ pub fn encode_decode_derive2(input: TokenStream) -> TokenStream {
                     let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), Compression::default());
                     encoder.write_all(dumpped.as_bytes())?;
                     encoder.finish().map_err(Self::EncodeError::from)
+                }
+
+                fn deserialize(val: &Vec<u8>, config: &Self::Config) -> Result<(Self, usize), Self::DecodeError> {
+                    let mut writer = Vec::new();
+                    let mut z = flate2::write::ZlibDecoder::new(writer);
+                    z.write_all(&val[..]).unwrap();
+                    writer = z.finish().unwrap();
+
+                    let str = String::from_utf8(writer).expect("String parsing error");
+
+                    let any_obj = rutie::Marshal::load(RString::new(&str));
+                    let obj = Self{value: any_obj.value()};
+                    Ok((obj, 0))
                 }
 
                 fn config() -> Self::Config {
