@@ -14,13 +14,57 @@ pub trait Serializable {
     where
         Self: Sized;
 }
+#[derive(Debug)]
+pub enum EncodeError {
+    Bincode(bincode::error::EncodeError),
+    Flate2(std::io::Error),
+}
+
+impl std::fmt::Display for EncodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            EncodeError::Bincode(ref err) => write!(f, "Bincode error: {}", err),
+            EncodeError::Flate2(ref err) => write!(f, "Flate2 error: {}", err),
+        }
+    }
+}
+
+impl From<bincode::error::EncodeError> for EncodeError {
+    fn from(error: bincode::error::EncodeError) -> Self {
+        EncodeError::Bincode(error)
+    }
+}
+
+impl From<std::io::Error> for EncodeError {
+    fn from(error: std::io::Error) -> Self {
+        EncodeError::Flate2(error)
+    }
+}
+pub trait Serializable2 {
+    type EncodeError: Debug;
+    type DecodeError: Debug;
+    type Config;
+
+    fn serialize(&self, config: &Self::Config) -> Result<Vec<u8>, Self::EncodeError>;
+    fn config() -> Self::Config;
+
+}
 
 #[cfg(test)]
 mod serializer_tests {
     use crate::serializable::Serializable;
+    use crate::serializable::Serializable2;
+    use crate::serializable::EncodeError;
     use bincode::{Decode, Encode};
     use derive::Serializable;
+    use derive::Serializable2;
     use rutie::{NilClass, Object, RString, VM};
+    extern crate flate2;
+    use flate2::write::ZlibDecoder;
+    use flate2::write::ZlibEncoder;
+    use flate2::Compression;
+    use std::io::{self, Write, Read};
+
 
     #[derive(Serializable)]
     #[encode_decode(lan = "ruby")]
@@ -29,6 +73,20 @@ mod serializer_tests {
     }
 
     impl RubyObject {
+        fn new() -> Self {
+            Self {
+                value: NilClass::new().value(),
+            }
+        }
+    }
+
+    #[derive(Serializable2)]
+    #[encode_decode(lan = "ruby")]
+    pub struct RubyObject2 {
+        pub value: rutie::types::Value,
+    }
+
+    impl RubyObject2 {
         fn new() -> Self {
             Self {
                 value: NilClass::new().value(),
@@ -45,6 +103,26 @@ mod serializer_tests {
         pub fn new() -> Self {
             Struct { a: true }
         }
+    }
+
+    #[derive(Encode, Decode, Serializable2)]
+    pub struct Struct2 {
+        a: bool,
+    }
+
+    impl Struct2 {
+        pub fn new() -> Self {
+            Struct2 { a: true }
+        }
+    }
+
+    #[test]
+    fn test_rust_serializer2() {
+        let s = Struct2::new();
+        let config = Struct2::config();
+        let encoded = s.serialize(&config).unwrap();
+        let expected: &[u8] = &[120, 156, 99, 4, 0, 0, 2, 0, 2];
+        assert_eq!(expected, encoded);
     }
 
     #[test]
