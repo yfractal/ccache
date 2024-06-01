@@ -14,32 +14,7 @@ pub trait Serializable {
     where
         Self: Sized;
 }
-#[derive(Debug)]
-pub enum EncodeError {
-    Bincode(bincode::error::EncodeError),
-    Flate2(std::io::Error),
-}
 
-impl std::fmt::Display for EncodeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self {
-            EncodeError::Bincode(ref err) => write!(f, "Bincode error: {}", err),
-            EncodeError::Flate2(ref err) => write!(f, "Flate2 error: {}", err),
-        }
-    }
-}
-
-impl From<bincode::error::EncodeError> for EncodeError {
-    fn from(error: bincode::error::EncodeError) -> Self {
-        EncodeError::Bincode(error)
-    }
-}
-
-impl From<std::io::Error> for EncodeError {
-    fn from(error: std::io::Error) -> Self {
-        EncodeError::Flate2(error)
-    }
-}
 pub trait Serializable2 {
     type EncodeError: Debug;
     type DecodeError: Debug;
@@ -57,15 +32,16 @@ pub trait Serializable2 {
 
 #[cfg(test)]
 mod serializer_tests {
-    use crate::serializable::EncodeError;
+    extern crate flate2;
+    use crate::errors::DecodeError;
+    use crate::errors::EncodeError;
     use crate::serializable::Serializable;
     use crate::serializable::Serializable2;
     use bincode::{Decode, Encode};
     use derive::Serializable;
     use derive::Serializable2;
-    use rutie::{NilClass, Object, RString, VM};
-    extern crate flate2;
     use flate2::Compression;
+    use rutie::{NilClass, Object, RString, VM};
     use std::io::Write;
 
     #[derive(Serializable)]

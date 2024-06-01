@@ -25,7 +25,7 @@ pub fn encode_decode_derive2(input: TokenStream) -> TokenStream {
 
             impl Serializable2 for #name {
                 type EncodeError = EncodeError;
-                type DecodeError = bincode::error::DecodeError;
+                type DecodeError = DecodeError;
                 type Config = bincode::config::Configuration;
 
                 fn serialize(&self, config: &Self::Config) -> Result<Vec<u8>, Self::EncodeError> {
@@ -38,9 +38,9 @@ pub fn encode_decode_derive2(input: TokenStream) -> TokenStream {
                 fn deserialize(val: &Vec<u8>, config: &Self::Config) -> Result<(Self, usize), Self::DecodeError> {
                     let mut writer = Vec::new();
                     let mut z = flate2::write::ZlibDecoder::new(writer);
-                    z.write_all(&val[..]).unwrap();
-                    writer = z.finish().unwrap();
-                    bincode::decode_from_slice(&writer, *config)
+                    z.write_all(&val[..])?;
+                    writer = z.finish()?;
+                    bincode::decode_from_slice(&writer, *config).map_err(Self::DecodeError::from)
                 }
 
                 fn config() -> Self::Config {
@@ -54,7 +54,7 @@ pub fn encode_decode_derive2(input: TokenStream) -> TokenStream {
         let expanded = quote! {
             impl Serializable2 for #name {
                 type EncodeError = EncodeError;
-                type DecodeError = bincode::error::DecodeError;
+                type DecodeError = DecodeError;
                 type Config = ();
 
                 fn serialize(&self, config: &Self::Config) -> Result<Vec<u8>, Self::EncodeError> {
@@ -68,8 +68,8 @@ pub fn encode_decode_derive2(input: TokenStream) -> TokenStream {
                 fn deserialize(val: &Vec<u8>, config: &Self::Config) -> Result<(Self, usize), Self::DecodeError> {
                     let mut writer = Vec::new();
                     let mut z = flate2::write::ZlibDecoder::new(writer);
-                    z.write_all(&val[..]).unwrap();
-                    writer = z.finish().unwrap();
+                    z.write_all(&val[..])?;
+                    writer = z.finish()?;
 
                     let str = String::from_utf8(writer).expect("String parsing error");
 
