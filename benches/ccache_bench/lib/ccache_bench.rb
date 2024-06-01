@@ -5,11 +5,15 @@ require 'objspace'
 require 'redis'
 require 'securerandom'
 require 'zlib'
+require 'rutie'
+
 
 module CcacheBench
+  Rutie.new(:ccache_bench).init 'Init_ccache_bench', __dir__
+
   class Benchmarker
     Record = Struct.new(:id, :val, :val2)
-    def initialize(redis_url, records_count, repeat_times = 100)
+    def initialize(redis_url, records_count, repeat_times = 10)
       @redis_url     = redis_url
       @records_count = records_count
       @repeat_times  = repeat_times

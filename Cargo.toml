@@ -1,4 +1,4 @@
-workspace = { members = ["derive"], exclude = ["examples/ruby_example"] }
+workspace = { members = ["derive"], exclude = ["examples/ruby_example", "benches/ccache_bench"] }
 
 [package]
 name = "ccache"

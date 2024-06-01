@@ -1,0 +1,19 @@
+[package]
+name = "ccache_bench"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ccache = { path = "../../" }
+derive = { version = "0.1.0", path = "../../derive" }
+rutie = { git = "https://github.com/yfractal/rutie.git", branch = "master"}
+redis = "0.25.2"
+lazy_static = "1.4.0"
+flate2 = "1.0"
+bincode = "2.0.0-rc.3"
+
+[lib]
+name = "ccache_bench"
+crate-type = ["dylib"]

@@ -9,6 +9,7 @@ PATH
   specs:
     ccache_bench (0.1.0)
       redis
+      rutie (~> 0.0.3)
 
 GEM
   remote: https://rubygems.org/
@@ -34,6 +35,7 @@ GEM
       diff-lcs (>= 1.2.0, < 2.0)
       rspec-support (~> 3.13.0)
     rspec-support (3.13.1)
+    rutie (0.0.4)
 
 PLATFORMS
   ruby
