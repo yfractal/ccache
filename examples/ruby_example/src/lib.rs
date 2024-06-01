@@ -1,11 +1,17 @@
 #[macro_use]
 extern crate rutie;
 extern crate lazy_static;
+extern crate flate2;
 
 use rutie::{AnyObject, Class, Object, RString};
 
+use ccache::errors::DecodeError;
+use ccache::errors::EncodeError;
 use ccache::serializable::Serializable;
 use derive::Serializable;
+use flate2::Compression;
+use std::io::Write;
+
 
 #[derive(Serializable)]
 #[encode_decode(lan = "ruby")]
@@ -47,11 +53,13 @@ methods!(
             value: obj.unwrap().value(),
         };
 
-        let etag = rbself
+        let _ = rbself
             .inner
             .insert(key.unwrap().to_str(), ruby_object, &mut rbself.redis_client)
             .unwrap();
-        RString::new_utf8(&etag.to_string().chars().rev().collect::<String>())
+
+        // TODO: return etag as sting
+        RString::new_utf8("")
     },
     fn ruby_get(key: RString) -> AnyObject {
         let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
