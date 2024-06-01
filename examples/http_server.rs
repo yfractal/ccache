@@ -1,9 +1,14 @@
 use bincode::{Decode, Encode};
 use ccache::in_memory_store::InMemoryStore;
 use ccache::serializable::Serializable;
-use derive::Serializable;
 use std::sync::{Arc, Mutex};
 use tide::Request;
+extern crate flate2;
+use ccache::errors::DecodeError;
+use ccache::errors::EncodeError;
+use derive::Serializable;
+use flate2::Compression;
+use std::io::Write;
 
 #[derive(Encode, Decode, Serializable, PartialEq, Debug, Clone)]
 struct Entity {

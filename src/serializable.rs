@@ -1,14 +1,14 @@
 use std::fmt::Debug;
 
 pub trait Serializable {
-    type Error: Debug;
+    type EncodeError: Debug;
     type DecodeError: Debug;
     type Config;
 
     fn config() -> Self::Config;
-    fn encode_to_string(&self, config: &Self::Config) -> Result<String, Self::Error>;
-    fn decode_from_string(
-        val: &String,
+    fn serialize(&self, config: &Self::Config) -> Result<Vec<u8>, Self::EncodeError>;
+    fn deserialize(
+        val: &Vec<u8>,
         config: &Self::Config,
     ) -> Result<(Self, usize), Self::DecodeError>
     where
@@ -17,10 +17,15 @@ pub trait Serializable {
 
 #[cfg(test)]
 mod serializer_tests {
+    extern crate flate2;
+    use crate::errors::DecodeError;
+    use crate::errors::EncodeError;
     use crate::serializable::Serializable;
     use bincode::{Decode, Encode};
     use derive::Serializable;
+    use flate2::Compression;
     use rutie::{NilClass, Object, RString, VM};
+    use std::io::Write;
 
     #[derive(Serializable)]
     #[encode_decode(lan = "ruby")]
@@ -49,12 +54,13 @@ mod serializer_tests {
 
     #[test]
     fn test_rust_serializer() {
-        let s: Struct = Struct::new();
+        let s = Struct::new();
         let config = Struct::config();
-        let encoded = s.encode_to_string(&config).unwrap();
-        assert_eq!("AQ==", encoded);
+        let encoded = s.serialize(&config).unwrap();
+        let expected: &[u8] = &[120, 156, 99, 4, 0, 0, 2, 0, 2];
+        assert_eq!(expected, encoded);
 
-        let (decoded, _) = Struct::decode_from_string(&encoded, &config).unwrap();
+        let (decoded, _) = Struct::deserialize(&encoded, &config).unwrap();
         assert_eq!(decoded.a, true);
     }
 
@@ -62,10 +68,11 @@ mod serializer_tests {
     fn test_ruby_serializer() {
         VM::init();
         let ruby_object = RubyObject::new();
-        let encoded = ruby_object.encode_to_string(&()).unwrap();
-        assert_eq!("\u{4}\u{8}0", encoded);
+        let encoded = ruby_object.serialize(&()).unwrap();
+        let expected: &[u8] = &[120, 156, 99, 225, 48, 0, 0, 0, 79, 0, 61];
+        assert_eq!(expected, encoded);
 
-        let (decoded, _) = RubyObject::decode_from_string(&encoded, &()).unwrap();
+        let (decoded, _) = RubyObject::deserialize(&encoded, &()).unwrap();
         assert_eq!(decoded.value, ruby_object.value);
     }
 }

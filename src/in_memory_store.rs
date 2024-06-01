@@ -11,7 +11,7 @@ use redis::Script;
 use uuid::Uuid;
 
 pub struct Data<T: Serializable> {
-    pub etags: HashMap<String, String>,
+    pub etags: HashMap<String, Vec<u8>>,
     pub structs: HashMap<String, Arc<T>>,
 }
 
@@ -32,7 +32,7 @@ pub struct InMemoryStore<T: Serializable> {
 enum GetThroughLocalResult {
     None,
     Unchanged,
-    Pair(String, String),
+    Pair(Vec<u8>, Vec<u8>),
 }
 
 const GET_FROM_REDIS_SCRIPT: &str = r#"
@@ -50,6 +50,8 @@ const INSERT_TO_REDIS_SCRIPT: &str = r#"
   return time
 "#;
 
+const ETAG_UNCHANGED: &[u8] = "-1".as_bytes();
+
 impl<T: Serializable> InMemoryStore<T> {
     pub fn new() -> Self {
         Self {
@@ -63,7 +65,7 @@ impl<T: Serializable> InMemoryStore<T> {
         key: &str,
         val: T,
         redis_conn: &mut redis::Connection,
-    ) -> Result<String, redis::RedisError> {
+    ) -> Result<Vec<u8>, redis::RedisError> {
         let uuid = Uuid::new_v4();
 
         probe!(
@@ -118,11 +120,11 @@ impl<T: Serializable> InMemoryStore<T> {
                         Ok(None)
                     },
                     Ok(GetThroughLocalResult::Pair(val, etag)) => {
-                        let (decoded, _): (T, usize) = T::decode_from_string(&val, &self.coder_config).unwrap();
+                        let (decoded, _): (T, usize) = T::deserialize(&val, &self.coder_config).unwrap();
                         let decoded_arc = Arc::new(decoded);
                         drop(data);
                         let mut data = self.data.write().unwrap();
-                        data.etags.insert(key.to_string(), etag.to_string());
+                        data.etags.insert(key.to_string(), etag);
                         data.structs.insert(key.to_string(), decoded_arc.clone());
 
                         probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
@@ -143,14 +145,15 @@ impl<T: Serializable> InMemoryStore<T> {
                     Ok(None) // redis missed
                 } else {
                     let val = redis_result.get("val").unwrap();
+
                     let etag = redis_result.get("etag").unwrap();
 
-                    let (decoded, _): (T, usize) = T::decode_from_string(&val, &self.coder_config).unwrap();
+                    let (decoded, _): (T, usize) = T::deserialize(&val, &self.coder_config).unwrap();
                     let decoded_arc = Arc::new(decoded);
 
                     drop(data); // release read lock
                     let mut data = self.data.write().unwrap(); // acquire write lock
-                    data.etags.insert(key.to_string(), etag.to_string());
+                    data.etags.insert(key.to_string(), etag.clone());
                     data.structs.insert(key.to_string(), decoded_arc.clone());
 
                     probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
@@ -167,14 +170,14 @@ impl<T: Serializable> InMemoryStore<T> {
         key: &str,
         obj: Arc<T>,
         redis_conn: &mut redis::Connection,
-    ) -> Result<String, redis::RedisError> {
+    ) -> Result<Vec<u8>, redis::RedisError> {
         probe!(
             ccache,
             store,
             trace::Event::new("insert_to_redis", "start", key, &uuid.to_string()).as_ptr()
         );
 
-        let val = obj.encode_to_string(&self.coder_config).unwrap();
+        let val = obj.serialize(&self.coder_config).unwrap();
         let etag = self.insert_to_redis_request(uuid, key, val, redis_conn)?;
 
         probe!(
@@ -190,16 +193,16 @@ impl<T: Serializable> InMemoryStore<T> {
         &self,
         uuid: Uuid,
         key: &str,
-        val: String,
+        val: Vec<u8>,
         redis_conn: &mut redis::Connection,
-    ) -> Result<String, redis::RedisError> {
+    ) -> Result<Vec<u8>, redis::RedisError> {
         probe!(
             ccache,
             store,
             trace::Event::new("insert_to_redis_request", "start", key, &uuid.to_string()).as_ptr()
         );
 
-        let result: Result<String, redis::RedisError> = Script::new(INSERT_TO_REDIS_SCRIPT)
+        let result: Result<Vec<u8>, redis::RedisError> = Script::new(INSERT_TO_REDIS_SCRIPT)
             .key(key)
             .arg(val)
             .invoke(redis_conn);
@@ -218,7 +221,7 @@ fn get_from_redis_request(
     uuid: Uuid,
     key: &str,
     conn: &mut redis::Connection,
-) -> Result<HashMap<String, String>, redis::RedisError> {
+) -> Result<HashMap<String, Vec<u8>>, redis::RedisError> {
     probe!(
         ccache,
         store,
@@ -240,18 +243,18 @@ fn get_from_redis_request(
 fn try_get_from_local(
     uuid: Uuid,
     key: &str,
-    etag: &String,
+    etag: &Vec<u8>,
     conn: &mut redis::Connection,
 ) -> Result<GetThroughLocalResult, redis::RedisError> {
     let redis_result = get_from_redis_through_etag(uuid, key, etag, conn)?;
     if unlikely(redis_result.is_empty()) {
         Ok(GetThroughLocalResult::None)
-    } else if likely(redis_result.get("etag").unwrap() == "-1") {
+    } else if likely(redis_result.get("etag").unwrap() == ETAG_UNCHANGED) {
         Ok(GetThroughLocalResult::Unchanged)
     } else {
-        let val = redis_result.get("val").unwrap().to_string();
-        let etag = redis_result.get("etag").unwrap().to_string();
-        Ok(GetThroughLocalResult::Pair(val, etag))
+        let val = redis_result.get("val").unwrap().to_vec();
+        let etag = redis_result.get("etag").unwrap();
+        Ok(GetThroughLocalResult::Pair(val, etag.clone()))
     }
 }
 
@@ -259,9 +262,9 @@ fn try_get_from_local(
 fn get_from_redis_through_etag(
     uuid: Uuid,
     key: &str,
-    etag: &String,
+    etag: &Vec<u8>,
     conn: &mut redis::Connection,
-) -> Result<HashMap<String, String>, redis::RedisError> {
+) -> Result<HashMap<String, Vec<u8>>, redis::RedisError> {
     probe!(
         ccache,
         store,
@@ -282,7 +285,7 @@ fn get_from_redis_through_etag(
     //     .query(conn);
     let result = Script::new(GET_FROM_REDIS_SCRIPT)
         .key(key)
-        .arg(etag.to_string())
+        .arg(etag)
         .invoke(conn);
 
     probe!(
@@ -296,9 +299,16 @@ fn get_from_redis_through_etag(
 
 #[cfg(test)]
 mod tests {
+    extern crate flate2;
     use super::*;
+    use crate::errors::DecodeError;
+    use crate::errors::EncodeError;
+    use crate::serializable::Serializable;
     use bincode::{Decode, Encode};
     use derive::Serializable;
+    use flate2::Compression;
+    use std::io::Write;
+
     impl<T: Serializable> InMemoryStore<T> {
         pub fn delete_etag(&self, key: &str) {
             let mut data = self.data.write().unwrap();
@@ -307,7 +317,7 @@ mod tests {
 
         pub fn update_etag(&self, key: &str, etag: &str) {
             let mut data = self.data.write().unwrap();
-            *data.etags.get_mut(key).unwrap() = etag.to_string();
+            *data.etags.get_mut(key).unwrap() = etag.as_bytes().to_vec();
         }
     }
 

@@ -19,21 +19,28 @@ pub fn encode_decode_derive(input: TokenStream) -> TokenStream {
     let opts = Opts::from_derive_input(&input).expect("Wrong options");
 
     let lan = opts.lan.unwrap_or("rust".to_string());
+
     if lan == "rust" {
         let expanded = quote! {
+
             impl Serializable for #name {
-                type Error = bincode::error::EncodeError;
-                type DecodeError = bincode::error::DecodeError;
+                type EncodeError = EncodeError;
+                type DecodeError = DecodeError;
                 type Config = bincode::config::Configuration;
 
-                fn encode_to_string(&self, config: &Self::Config) -> Result<String, Self::Error> {
-                    let bytes = bincode::encode_to_vec(&self, *config)?;
-                    Ok(base64::encode(bytes))
+                fn serialize(&self, config: &Self::Config) -> Result<Vec<u8>, Self::EncodeError> {
+                    let mut encoded = bincode::encode_to_vec(&self, *config)?;
+                    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), Compression::default());
+                    encoder.write_all(&mut encoded)?;
+                    encoder.finish().map_err(Self::EncodeError::from)
                 }
 
-                fn decode_from_string(val: &String, config: &Self::Config) -> Result<(Self, usize), Self::DecodeError> {
-                    let bytes = base64::decode(val).unwrap();
-                    bincode::decode_from_slice(&bytes, *config)
+                fn deserialize(val: &Vec<u8>, config: &Self::Config) -> Result<(Self, usize), Self::DecodeError> {
+                    let mut writer = Vec::new();
+                    let mut z = flate2::write::ZlibDecoder::new(writer);
+                    z.write_all(&val[..])?;
+                    writer = z.finish()?;
+                    bincode::decode_from_slice(&writer, *config).map_err(Self::DecodeError::from)
                 }
 
                 fn config() -> Self::Config {
@@ -46,19 +53,26 @@ pub fn encode_decode_derive(input: TokenStream) -> TokenStream {
     } else {
         let expanded = quote! {
             impl Serializable for #name {
-                type Error = ();
-                type DecodeError = ();
+                type EncodeError = EncodeError;
+                type DecodeError = DecodeError;
                 type Config = ();
 
-                fn encode_to_string(&self, config: &Self::Config) -> Result<String, Self::Error> {
+                fn serialize(&self, config: &Self::Config) -> Result<Vec<u8>, Self::EncodeError> {
                     let any_obj = rutie::AnyObject::from(self.value);
-                    let rv = rutie::Marshal::dump(any_obj, rutie::NilClass::new().into()).to_string();
-
-                    Ok(rv)
+                    let dumpped = rutie::Marshal::dump(any_obj, rutie::NilClass::new().into()).to_string();
+                    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), Compression::default());
+                    encoder.write_all(dumpped.as_bytes())?;
+                    encoder.finish().map_err(Self::EncodeError::from)
                 }
 
-                fn decode_from_string(val: &String, config: &Self::Config) -> Result<(Self, usize), Self::DecodeError> {
-                    let any_obj = rutie::Marshal::load(RString::new(val));
+                fn deserialize(val: &Vec<u8>, config: &Self::Config) -> Result<(Self, usize), Self::DecodeError> {
+                    let mut writer = Vec::new();
+                    let mut z = flate2::write::ZlibDecoder::new(writer);
+                    z.write_all(&val[..])?;
+                    writer = z.finish()?;
+
+                    let str = String::from_utf8(writer).expect("String parsing error");
+                    let any_obj = rutie::Marshal::load(RString::new(&str));
                     let obj = Self{value: any_obj.value()};
                     Ok((obj, 0))
                 }
