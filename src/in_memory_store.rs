@@ -1,4 +1,4 @@
-use crate::serializable::Serializable;
+use crate::serializable::Serializable2;
 use crate::trace;
 
 use std::collections::HashMap;
@@ -10,12 +10,12 @@ use probe::probe;
 use redis::Script;
 use uuid::Uuid;
 
-pub struct Data<T: Serializable> {
+pub struct Data<T: Serializable2> {
     pub etags: HashMap<String, String>,
     pub structs: HashMap<String, Arc<T>>,
 }
 
-impl<T: Serializable> Data<T> {
+impl<T: Serializable2> Data<T> {
     pub fn new() -> Self {
         Data {
             structs: HashMap::new(),
@@ -24,7 +24,7 @@ impl<T: Serializable> Data<T> {
     }
 }
 
-pub struct InMemoryStore<T: Serializable> {
+pub struct InMemoryStore<T: Serializable2> {
     data: RwLock<Data<T>>,
     pub coder_config: T::Config,
 }
@@ -32,7 +32,7 @@ pub struct InMemoryStore<T: Serializable> {
 enum GetThroughLocalResult {
     None,
     Unchanged,
-    Pair(String, String),
+    Pair(Vec<u8>, String),
 }
 
 const GET_FROM_REDIS_SCRIPT: &str = r#"
@@ -50,7 +50,9 @@ const INSERT_TO_REDIS_SCRIPT: &str = r#"
   return time
 "#;
 
-impl<T: Serializable> InMemoryStore<T> {
+const ETAG_UNCHANGED: &[u8] = "-1".as_bytes();
+
+impl<T: Serializable2> InMemoryStore<T> {
     pub fn new() -> Self {
         Self {
             data: RwLock::new(Data::new()),
@@ -118,7 +120,7 @@ impl<T: Serializable> InMemoryStore<T> {
                         Ok(None)
                     },
                     Ok(GetThroughLocalResult::Pair(val, etag)) => {
-                        let (decoded, _): (T, usize) = T::decode_from_string(&val, &self.coder_config).unwrap();
+                        let (decoded, _): (T, usize) = T::deserialize(&val, &self.coder_config).unwrap();
                         let decoded_arc = Arc::new(decoded);
                         drop(data);
                         let mut data = self.data.write().unwrap();
@@ -143,9 +145,10 @@ impl<T: Serializable> InMemoryStore<T> {
                     Ok(None) // redis missed
                 } else {
                     let val = redis_result.get("val").unwrap();
-                    let etag = redis_result.get("etag").unwrap();
 
-                    let (decoded, _): (T, usize) = T::decode_from_string(&val, &self.coder_config).unwrap();
+                    let etag = std::str::from_utf8(redis_result.get("etag").unwrap()).unwrap().to_string();
+
+                    let (decoded, _): (T, usize) = T::deserialize(&val, &self.coder_config).unwrap();
                     let decoded_arc = Arc::new(decoded);
 
                     drop(data); // release read lock
@@ -174,7 +177,7 @@ impl<T: Serializable> InMemoryStore<T> {
             trace::Event::new("insert_to_redis", "start", key, &uuid.to_string()).as_ptr()
         );
 
-        let val = obj.encode_to_string(&self.coder_config).unwrap();
+        let val = obj.serialize(&self.coder_config).unwrap();
         let etag = self.insert_to_redis_request(uuid, key, val, redis_conn)?;
 
         probe!(
@@ -190,7 +193,7 @@ impl<T: Serializable> InMemoryStore<T> {
         &self,
         uuid: Uuid,
         key: &str,
-        val: String,
+        val: Vec<u8>,
         redis_conn: &mut redis::Connection,
     ) -> Result<String, redis::RedisError> {
         probe!(
@@ -218,7 +221,7 @@ fn get_from_redis_request(
     uuid: Uuid,
     key: &str,
     conn: &mut redis::Connection,
-) -> Result<HashMap<String, String>, redis::RedisError> {
+) -> Result<HashMap<String, Vec<u8>>, redis::RedisError> {
     probe!(
         ccache,
         store,
@@ -246,11 +249,13 @@ fn try_get_from_local(
     let redis_result = get_from_redis_through_etag(uuid, key, etag, conn)?;
     if unlikely(redis_result.is_empty()) {
         Ok(GetThroughLocalResult::None)
-    } else if likely(redis_result.get("etag").unwrap() == "-1") {
+    } else if likely(redis_result.get("etag").unwrap() == ETAG_UNCHANGED) {
         Ok(GetThroughLocalResult::Unchanged)
     } else {
-        let val = redis_result.get("val").unwrap().to_string();
-        let etag = redis_result.get("etag").unwrap().to_string();
+        let val = redis_result.get("val").unwrap().to_vec();
+        let etag = std::str::from_utf8(redis_result.get("etag").unwrap())
+            .unwrap()
+            .to_string();
         Ok(GetThroughLocalResult::Pair(val, etag))
     }
 }
@@ -261,7 +266,7 @@ fn get_from_redis_through_etag(
     key: &str,
     etag: &String,
     conn: &mut redis::Connection,
-) -> Result<HashMap<String, String>, redis::RedisError> {
+) -> Result<HashMap<String, Vec<u8>>, redis::RedisError> {
     probe!(
         ccache,
         store,
@@ -296,10 +301,17 @@ fn get_from_redis_through_etag(
 
 #[cfg(test)]
 mod tests {
+    extern crate flate2;
     use super::*;
+    use crate::errors::DecodeError;
+    use crate::errors::EncodeError;
+    use crate::serializable::Serializable2;
     use bincode::{Decode, Encode};
-    use derive::Serializable;
-    impl<T: Serializable> InMemoryStore<T> {
+    use derive::Serializable2;
+    use flate2::Compression;
+    use std::io::Write;
+
+    impl<T: Serializable2> InMemoryStore<T> {
         pub fn delete_etag(&self, key: &str) {
             let mut data = self.data.write().unwrap();
             data.etags.remove(key).unwrap();
@@ -311,27 +323,27 @@ mod tests {
         }
     }
 
-    #[derive(Encode, Decode, Serializable, PartialEq, Debug, Clone)]
+    #[derive(Encode, Decode, Serializable2, PartialEq, Debug, Clone)]
     struct Entity {
         x: f32,
         y: f32,
     }
 
-    #[derive(Encode, Decode, Serializable, PartialEq, Debug, Clone)]
+    #[derive(Encode, Decode, Serializable2, PartialEq, Debug, Clone)]
     struct World(Vec<Entity>);
 
-    struct TestContext<T: Serializable> {
+    struct TestContext<T: Serializable2> {
         in_memory_store: InMemoryStore<T>,
         redis_conn: redis::Connection,
     }
 
-    impl<T: Serializable> Drop for TestContext<T> {
+    impl<T: Serializable2> Drop for TestContext<T> {
         fn drop(&mut self) {
-            let _: () = redis::cmd("FLUSHDB").query(&mut self.redis_conn).unwrap();
+            // let _: () = redis::cmd("FLUSHDB").query(&mut self.redis_conn).unwrap();
         }
     }
 
-    fn setup<T: Serializable>() -> TestContext<T> {
+    fn setup<T: Serializable2>() -> TestContext<T> {
         let in_memory_store = InMemoryStore::new();
 
         // Connect to Redis

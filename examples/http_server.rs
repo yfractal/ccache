@@ -1,6 +1,6 @@
 use bincode::{Decode, Encode};
 use ccache::in_memory_store::InMemoryStore;
-use ccache::serializable::Serializable;
+use ccache::serializable::Serializable2;
 use derive::Serializable;
 use std::sync::{Arc, Mutex};
 use tide::Request;
@@ -14,12 +14,12 @@ struct Entity {
 #[derive(Encode, Decode, Serializable, PartialEq, Debug, Clone)]
 struct World(Vec<Entity>);
 
-struct AppState<T: Serializable> {
+struct AppState<T: Serializable2> {
     in_memory_store: Arc<InMemoryStore<T>>,
     redis_conn: Arc<Mutex<redis::Connection>>,
 }
 
-impl<T: Serializable> AppState<T> {
+impl<T: Serializable2> AppState<T> {
     pub fn new() -> Self {
         let client = redis::Client::open("redis://127.0.0.1/").unwrap();
         let redis_conn = client.get_connection().unwrap();
