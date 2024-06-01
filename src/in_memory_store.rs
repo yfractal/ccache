@@ -1,4 +1,4 @@
-use crate::serializable::Serializable2;
+use crate::serializable::Serializable;
 use crate::trace;
 
 use std::collections::HashMap;
@@ -10,12 +10,12 @@ use probe::probe;
 use redis::Script;
 use uuid::Uuid;
 
-pub struct Data<T: Serializable2> {
+pub struct Data<T: Serializable> {
     pub etags: HashMap<String, Vec<u8>>,
     pub structs: HashMap<String, Arc<T>>,
 }
 
-impl<T: Serializable2> Data<T> {
+impl<T: Serializable> Data<T> {
     pub fn new() -> Self {
         Data {
             structs: HashMap::new(),
@@ -24,7 +24,7 @@ impl<T: Serializable2> Data<T> {
     }
 }
 
-pub struct InMemoryStore<T: Serializable2> {
+pub struct InMemoryStore<T: Serializable> {
     data: RwLock<Data<T>>,
     pub coder_config: T::Config,
 }
@@ -52,7 +52,7 @@ const INSERT_TO_REDIS_SCRIPT: &str = r#"
 
 const ETAG_UNCHANGED: &[u8] = "-1".as_bytes();
 
-impl<T: Serializable2> InMemoryStore<T> {
+impl<T: Serializable> InMemoryStore<T> {
     pub fn new() -> Self {
         Self {
             data: RwLock::new(Data::new()),
@@ -303,13 +303,13 @@ mod tests {
     use super::*;
     use crate::errors::DecodeError;
     use crate::errors::EncodeError;
-    use crate::serializable::Serializable2;
+    use crate::serializable::Serializable;
     use bincode::{Decode, Encode};
-    use derive::Serializable2;
+    use derive::Serializable;
     use flate2::Compression;
     use std::io::Write;
 
-    impl<T: Serializable2> InMemoryStore<T> {
+    impl<T: Serializable> InMemoryStore<T> {
         pub fn delete_etag(&self, key: &str) {
             let mut data = self.data.write().unwrap();
             data.etags.remove(key).unwrap();
@@ -321,27 +321,27 @@ mod tests {
         }
     }
 
-    #[derive(Encode, Decode, Serializable2, PartialEq, Debug, Clone)]
+    #[derive(Encode, Decode, Serializable, PartialEq, Debug, Clone)]
     struct Entity {
         x: f32,
         y: f32,
     }
 
-    #[derive(Encode, Decode, Serializable2, PartialEq, Debug, Clone)]
+    #[derive(Encode, Decode, Serializable, PartialEq, Debug, Clone)]
     struct World(Vec<Entity>);
 
-    struct TestContext<T: Serializable2> {
+    struct TestContext<T: Serializable> {
         in_memory_store: InMemoryStore<T>,
         redis_conn: redis::Connection,
     }
 
-    impl<T: Serializable2> Drop for TestContext<T> {
+    impl<T: Serializable> Drop for TestContext<T> {
         fn drop(&mut self) {
-            // let _: () = redis::cmd("FLUSHDB").query(&mut self.redis_conn).unwrap();
+            let _: () = redis::cmd("FLUSHDB").query(&mut self.redis_conn).unwrap();
         }
     }
 
-    fn setup<T: Serializable2>() -> TestContext<T> {
+    fn setup<T: Serializable>() -> TestContext<T> {
         let in_memory_store = InMemoryStore::new();
 
         // Connect to Redis

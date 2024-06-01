@@ -1,21 +1,6 @@
 use std::fmt::Debug;
 
 pub trait Serializable {
-    type Error: Debug;
-    type DecodeError: Debug;
-    type Config;
-
-    fn config() -> Self::Config;
-    fn encode_to_string(&self, config: &Self::Config) -> Result<String, Self::Error>;
-    fn decode_from_string(
-        val: &String,
-        config: &Self::Config,
-    ) -> Result<(Self, usize), Self::DecodeError>
-    where
-        Self: Sized;
-}
-
-pub trait Serializable2 {
     type EncodeError: Debug;
     type DecodeError: Debug;
     type Config;
@@ -36,10 +21,8 @@ mod serializer_tests {
     use crate::errors::DecodeError;
     use crate::errors::EncodeError;
     use crate::serializable::Serializable;
-    use crate::serializable::Serializable2;
     use bincode::{Decode, Encode};
     use derive::Serializable;
-    use derive::Serializable2;
     use flate2::Compression;
     use rutie::{NilClass, Object, RString, VM};
     use std::io::Write;
@@ -58,20 +41,6 @@ mod serializer_tests {
         }
     }
 
-    #[derive(Serializable2)]
-    #[encode_decode(lan = "ruby")]
-    pub struct RubyObject2 {
-        pub value: rutie::types::Value,
-    }
-
-    impl RubyObject2 {
-        fn new() -> Self {
-            Self {
-                value: NilClass::new().value(),
-            }
-        }
-    }
-
     #[derive(Encode, Decode, Serializable)]
     pub struct Struct {
         a: bool,
@@ -83,49 +52,15 @@ mod serializer_tests {
         }
     }
 
-    #[derive(Encode, Decode, Serializable2)]
-    pub struct Struct2 {
-        a: bool,
-    }
-
-    impl Struct2 {
-        pub fn new() -> Self {
-            Struct2 { a: true }
-        }
-    }
-
     #[test]
-    fn test_rust_serializer2() {
-        let s = Struct2::new();
-        let config = Struct2::config();
+    fn test_rust_serializer() {
+        let s = Struct::new();
+        let config = Struct::config();
         let encoded = s.serialize(&config).unwrap();
         let expected: &[u8] = &[120, 156, 99, 4, 0, 0, 2, 0, 2];
         assert_eq!(expected, encoded);
 
-        let (decoded, _) = Struct2::deserialize(&encoded, &config).unwrap();
-        assert_eq!(decoded.a, true);
-    }
-
-    #[test]
-    fn test_ruby_serializer2() {
-        VM::init();
-        let ruby_object = RubyObject2::new();
-        let encoded = ruby_object.serialize(&()).unwrap();
-        let expected: &[u8] = &[120, 156, 99, 225, 48, 0, 0, 0, 79, 0, 61];
-        assert_eq!(expected, encoded);
-
-        let (decoded, _) = RubyObject2::deserialize(&encoded, &()).unwrap();
-        assert_eq!(decoded.value, ruby_object.value);
-    }
-
-    #[test]
-    fn test_rust_serializer() {
-        let s: Struct = Struct::new();
-        let config = Struct::config();
-        let encoded = s.encode_to_string(&config).unwrap();
-        assert_eq!("AQ==", encoded);
-
-        let (decoded, _) = Struct::decode_from_string(&encoded, &config).unwrap();
+        let (decoded, _) = Struct::deserialize(&encoded, &config).unwrap();
         assert_eq!(decoded.a, true);
     }
 
@@ -133,10 +68,11 @@ mod serializer_tests {
     fn test_ruby_serializer() {
         VM::init();
         let ruby_object = RubyObject::new();
-        let encoded = ruby_object.encode_to_string(&()).unwrap();
-        assert_eq!("\u{4}\u{8}0", encoded);
+        let encoded = ruby_object.serialize(&()).unwrap();
+        let expected: &[u8] = &[120, 156, 99, 225, 48, 0, 0, 0, 79, 0, 61];
+        assert_eq!(expected, encoded);
 
-        let (decoded, _) = RubyObject::decode_from_string(&encoded, &()).unwrap();
+        let (decoded, _) = RubyObject::deserialize(&encoded, &()).unwrap();
         assert_eq!(decoded.value, ruby_object.value);
     }
 }
