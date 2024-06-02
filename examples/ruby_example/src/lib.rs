@@ -3,13 +3,14 @@ extern crate rutie;
 extern crate flate2;
 extern crate lazy_static;
 
-use rutie::{AnyObject, Class, Object, RString};
-
 use ccache::errors::DecodeError;
 use ccache::errors::EncodeError;
 use ccache::serializable::Serializable;
 use derive::Serializable;
 use flate2::Compression;
+use rutie::rubysys::string;
+use rutie::types::{c_char, c_long};
+use rutie::{AnyObject, Class, Object, RString};
 use std::io::Write;
 
 #[derive(Serializable, Debug)]

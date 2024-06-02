@@ -71,8 +71,11 @@ pub fn encode_decode_derive(input: TokenStream) -> TokenStream {
                     z.write_all(&val[..])?;
                     writer = z.finish()?;
 
-                    let str = String::from_utf8(writer).expect("String parsing error");
-                    let any_obj = rutie::Marshal::load(RString::new(&str));
+                    let bts = writer.as_ptr() as *const c_char;
+                    let len = writer.len() as c_long;
+                    let str = unsafe { string::rb_str_new(bts, len) };
+
+                    let any_obj = rutie::Marshal::load(RString::from(str));
                     let obj = Self{value: any_obj.value()};
                     Ok((obj, 0))
                 }
