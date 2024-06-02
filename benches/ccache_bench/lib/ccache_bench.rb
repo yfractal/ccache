@@ -25,7 +25,14 @@ module CcacheBench
         Record.new(rand(10000000), random_string(32), random_string(32))
       end
 
-      serialized = serialize(records)
+      data = {}
+
+      records.each do |record|
+        data[record.id] => record
+      end
+
+      serialized = serialize(data.to_s)
+
       redis = Redis.new(url: @redis_url)
       redis.set(@redis_key, serialized)
 
@@ -34,6 +41,10 @@ module CcacheBench
       serialized_size = serialized.length
       redis_memory_usage = redis.memory('usage', @redis_key)
 
+      ruby_store = RubyStore.new(@redis_url)
+
+      ruby_store.insert(ccache_redis_key, data.to_s)
+
       puts "Records count:#{@records_count}, size: #{size}, serialized_size: #{serialized_size}, redis_memory_usage=#{redis_memory_usage}"
     end
 
@@ -41,7 +52,11 @@ module CcacheBench
       redis_baseline
 
       time = Array.new(@repeat_times) { read_from_redis }.sum / @repeat_times * 1000
-      puts "Read #{@records_count} records takes #{time} ms."
+
+      ruby_store = RubyStore.new(@redis_url)
+      ccache_time = Array.new(@repeat_times) { read_from_redis_through_ccache(ruby_store) }.sum / @repeat_times * 1000
+
+      puts "Read #{@records_count} records takes #{time} ms, ccache takes #{ccache_time} ms."
 
       time
     end
@@ -52,6 +67,16 @@ module CcacheBench
 
       t0 = cpu_time
       records = do_read_from_redis(redis)
+      t1 = cpu_time
+
+      raise "records is nill" unless records
+
+      t1 - t0
+    end
+
+    def read_from_redis_through_ccache(ruby_store)
+      t0 = cpu_time
+      records = do_read_from_redis_through_ccache(ruby_store)
       t1 = cpu_time
 
       raise "records is nill" unless records
@@ -91,6 +116,13 @@ module CcacheBench
       Marshal.load(inflated)
     end
 
+    def do_read_from_redis_through_ccache(ruby_store)
+      ruby_store.get(ccache_redis_key)
+    end
+
+    def ccache_redis_key
+      "#{@redis_key}-cache"
+    end
 
     def serialize(obj)
       serialized = Marshal.dump(obj)
