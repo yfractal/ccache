@@ -1,5 +1,5 @@
 [package]
-name = "ruby_example"
+name = "ccache_bench"
 version = "0.1.0"
 edition = "2021"
 
@@ -14,7 +14,6 @@ lazy_static = "1.4.0"
 flate2 = "1.0"
 bincode = "2.0.0-rc.3"
 
-
 [lib]
-name = "ruby_example"
+name = "ccache_bench"
 crate-type = ["dylib"]

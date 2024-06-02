@@ -8,12 +8,12 @@ use ccache::errors::EncodeError;
 use ccache::serializable::Serializable;
 use derive::Serializable;
 use flate2::Compression;
+use rutie::{AnyObject, Class, Object, RString};
 use rutie::rubysys::string;
 use rutie::types::{c_char, c_long};
-use rutie::{AnyObject, Class, Object, RString};
 use std::io::Write;
 
-#[derive(Serializable, Debug)]
+#[derive(Serializable)]
 #[encode_decode(lan = "ruby")]
 pub struct RubyObject {
     pub value: rutie::types::Value,
@@ -53,13 +53,11 @@ methods!(
             value: obj.unwrap().value(),
         };
 
-        let _ = rbself
+        let etag = rbself
             .inner
             .insert(key.unwrap().to_str(), ruby_object, &mut rbself.redis_client)
             .unwrap();
-
-        // TODO: return etag as sting
-        RString::new_utf8("")
+        RString::new_utf8(&String::from_utf8(etag).unwrap())
     },
     fn ruby_get(key: RString) -> AnyObject {
         let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
@@ -75,7 +73,7 @@ methods!(
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn Init_ruby_example() {
+pub extern "C" fn Init_ccache_bench() {
     Class::new("RubyStore", None).define(|klass| {
         klass.def_self("new", ruby_new);
         klass.def("insert", ruby_insert);

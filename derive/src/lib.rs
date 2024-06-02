@@ -59,9 +59,9 @@ pub fn encode_decode_derive(input: TokenStream) -> TokenStream {
 
                 fn serialize(&self, config: &Self::Config) -> Result<Vec<u8>, Self::EncodeError> {
                     let any_obj = rutie::AnyObject::from(self.value);
-                    let dumpped = rutie::Marshal::dump(any_obj, rutie::NilClass::new().into()).to_string();
+                    let dumpped = rutie::Marshal::dump(any_obj, rutie::NilClass::new().into());
                     let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), Compression::default());
-                    encoder.write_all(dumpped.as_bytes())?;
+                    encoder.write_all(dumpped.to_bytes_unchecked())?;
                     encoder.finish().map_err(Self::EncodeError::from)
                 }
 
@@ -71,8 +71,11 @@ pub fn encode_decode_derive(input: TokenStream) -> TokenStream {
                     z.write_all(&val[..])?;
                     writer = z.finish()?;
 
-                    let str = String::from_utf8(writer).expect("String parsing error");
-                    let any_obj = rutie::Marshal::load(RString::new(&str));
+                    let bts = writer.as_ptr() as *const c_char;
+                    let len = writer.len() as c_long;
+                    let str = unsafe { string::rb_str_new(bts, len) };
+
+                    let any_obj = rutie::Marshal::load(RString::from(str));
                     let obj = Self{value: any_obj.value()};
                     Ok((obj, 0))
                 }

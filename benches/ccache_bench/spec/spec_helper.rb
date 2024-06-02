@@ -1,6 +1,5 @@
 require "bundler/setup"
-require "ruby_example"
-require "byebug"
+require "ccache_bench"
 
 RSpec.configure do |config|
   # Enable flags like --only-failures and --next-failure

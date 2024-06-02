@@ -5,6 +5,12 @@ Ccache, short for Conditional Cache, works like HTTP conditional requests, provi
 
 Ccache caches data locally, and for subsequent requests, it sends the key with the cached data's ETag to Redis. If the key's data in Redis hasn't changed, Redis returns "no change" and Ccache uses the locally cached data.
 
+![Ccache Benchmark(CPU Time)_cleanup](https://github.com/yfractal/ccache/assets/3775525/9b9ac39e-e8e3-4362-91d1-7aab3e31589e)
+
+Many backend servers save large dynamic settings in Redis. As this data grows, the serialization time increases rapidly. Ccache can reduce such CPU waste by caching data locally, eliminating the need to deserialize data when it remains unchanged.
+
+The image above is a benchmark of Ccache compared to the default implementation (querying Redis and deserializing). We see that Ccache significantly decreases CPU time.
+
 ## Why Ccache?
 Redis offers [client-side caching](https://redis.io/docs/latest/develop/use/client-side-caching/) to reduce latency and Redis load.
 

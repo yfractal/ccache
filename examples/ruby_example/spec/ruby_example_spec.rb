@@ -26,5 +26,37 @@ RSpec.describe RubyExample do
       expect(fetched.b).to eq 'b'
       expect(fetched).to eq foo
     end
+
+    describe 'hash' do
+      it 'empty hash' do
+        ruby_store.insert('some-key', {})
+        fetched = ruby_store.get('some-key')
+
+        expect(fetched).to eq({})
+      end
+
+      it 'simple hash' do
+        ruby_store.insert('some-key', {:a => 1})
+        fetched = ruby_store.get('some-key')
+
+        expect(fetched).to eq({:a => 1})
+      end
+    end
+
+    describe 'array' do
+      it 'empaty array' do
+        ruby_store.insert('some-key', [])
+        fetched = ruby_store.get('some-key')
+
+        expect(fetched).to eq []
+      end
+
+      it 'simple array' do
+        ruby_store.insert('some-key', ['a'])
+        fetched = ruby_store.get('some-key')
+
+        expect(fetched).to eq ['a']
+      end
+    end
   end
 end

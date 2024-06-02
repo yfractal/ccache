@@ -1,15 +1,15 @@
 lib = File.expand_path("../lib", __FILE__)
 $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
-require "ruby_example/version"
+require "ccache_bench/version"
 
 Gem::Specification.new do |spec|
-  spec.name          = "ruby_example"
-  spec.version       = RubyExample::VERSION
+  spec.name          = "ccache_bench"
+  spec.version       = CcacheBench::VERSION
   spec.authors       = ["Mike Yang"]
   spec.email         = ["yfractal@gmail.com"]
 
-  spec.summary       = %q{A simple Ruby demo}
-  spec.description   = %q{A simple Ruby demo}
+  spec.summary       = %q{Ccache Benchmark.}
+  spec.description   = %q{Ccache Benchmark.}
 
   spec.license       = "MIT"
 
@@ -22,9 +22,10 @@ Gem::Specification.new do |spec|
   spec.executables   = spec.files.grep(%r{^exe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
 
+  spec.add_dependency "redis"
   spec.add_dependency 'rutie', '~> 0.0.3'
 
-  spec.add_development_dependency "bundler", "~> 2.5.10"
+  spec.add_development_dependency "bundler", "~> 2.4.19"
   spec.add_development_dependency "rake", "~> 10.0"
   spec.add_development_dependency "rspec", "~> 3.0"
   spec.add_development_dependency "byebug"

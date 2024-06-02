@@ -26,6 +26,8 @@ mod serializer_tests {
     use flate2::Compression;
     use rutie::{NilClass, Object, RString, VM};
     use std::io::Write;
+    use rutie::rubysys::string;
+    use rutie::types::{c_char, c_long};
 
     #[derive(Serializable)]
     #[encode_decode(lan = "ruby")]
