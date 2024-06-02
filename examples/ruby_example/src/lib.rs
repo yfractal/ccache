@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate rutie;
-extern crate lazy_static;
 extern crate flate2;
+extern crate lazy_static;
 
 use rutie::{AnyObject, Class, Object, RString};
 
@@ -12,8 +12,7 @@ use derive::Serializable;
 use flate2::Compression;
 use std::io::Write;
 
-
-#[derive(Serializable)]
+#[derive(Serializable, Debug)]
 #[encode_decode(lan = "ruby")]
 pub struct RubyObject {
     pub value: rutie::types::Value,

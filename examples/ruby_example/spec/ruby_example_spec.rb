@@ -29,8 +29,6 @@ RSpec.describe RubyExample do
 
     describe 'hash' do
       it 'empty hash' do
-        skip
-
         ruby_store.insert('some-key', {})
         fetched = ruby_store.get('some-key')
 
@@ -47,8 +45,6 @@ RSpec.describe RubyExample do
 
     describe 'array' do
       it 'empaty array' do
-        skip
-
         ruby_store.insert('some-key', [])
         fetched = ruby_store.get('some-key')
 
@@ -56,12 +52,10 @@ RSpec.describe RubyExample do
       end
 
       it 'simple array' do
-        skip
-
-        ruby_store.insert('some-key', [''])
+        ruby_store.insert('some-key', ['a'])
         fetched = ruby_store.get('some-key')
 
-        expect(fetched).to eq ['']
+        expect(fetched).to eq ['a']
       end
     end
   end
