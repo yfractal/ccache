@@ -13,6 +13,7 @@ module CcacheBench
 
   class Benchmarker
     Record = Struct.new(:id, :val, :val2)
+
     def initialize(redis_url, records_count, repeat_times = 10)
       @redis_url     = redis_url
       @records_count = records_count
@@ -25,13 +26,7 @@ module CcacheBench
         Record.new(rand(10000000), random_string(32), random_string(32))
       end
 
-      data = {}
-
-      records.each do |record|
-        data[record.id] => record
-      end
-
-      serialized = serialize(data.to_s)
+      serialized = serialize(records)
 
       redis = Redis.new(url: @redis_url)
       redis.set(@redis_key, serialized)
@@ -43,7 +38,7 @@ module CcacheBench
 
       ruby_store = RubyStore.new(@redis_url)
 
-      ruby_store.insert(ccache_redis_key, data.to_s)
+      ruby_store.insert(ccache_redis_key, records)
 
       puts "Records count:#{@records_count}, size: #{size}, serialized_size: #{serialized_size}, redis_memory_usage=#{redis_memory_usage}"
     end
