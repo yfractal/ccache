@@ -17,6 +17,22 @@ RSpec.describe RubyExample do
       expect(rv).to eq nil
     end
 
+    it 'insert returns etag' do
+      etag = ruby_store.insert('some-key', true)
+      expect(etag).not_to eq nil
+      expect(etag.to_i).not_to eq 0
+    end
+
+    it 'gets return nil' do
+      rv = ruby_store.get('none-exist-key')
+      expect(rv).to eq nil
+    end
+
+    it 'get works for integer' do
+      rv = ruby_store.get(1)
+      expect(rv).to eq nil
+    end
+
     it 'works for simple obj' do
       ruby_store.insert('some-key', true)
       expect(ruby_store.get('some-key')).to eq true
@@ -72,7 +88,4 @@ RSpec.describe RubyExample do
       expect(e.class).to eq CcacheRedisError
     end
   end
-
-  # TODO
-  # ruby_store.get 1 should work :joy:
 end

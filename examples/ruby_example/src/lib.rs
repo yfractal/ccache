@@ -10,7 +10,7 @@ use derive::Serializable;
 use flate2::Compression;
 use rutie::rubysys::string;
 use rutie::types::{c_char, c_long};
-use rutie::{AnyException, AnyObject, Class, Exception, NilClass, Object, RString, VM};
+use rutie::{AnyObject, Class, NilClass, Object, RString, VM};
 use std::io::Write;
 
 #[derive(Serializable, Debug)]
@@ -74,7 +74,7 @@ methods!(
             }
         }
     },
-    fn ruby_get(key: RString) -> AnyObject {
+    fn rs_get(key: RString) -> AnyObject {
         let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
         let result = rbself
             .inner
@@ -83,18 +83,12 @@ methods!(
         match result {
             Ok(Some(val)) => AnyObject::from(val.value),
             Ok(None) => NilClass::new().into(),
-            Err(e) => AnyException::new(&e.to_string(), None).into(),
+            Err(error) => {
+                let error_class = Class::from_existing("CcacheRedisError");
+                VM::raise(error_class, &error.to_string());
+                NilClass::new().into()
+            }
         }
-        // let object = rbself
-        //     .inner
-        //     .get(key.unwrap().to_str(), &mut rbself.redis_client)
-        //     .unwrap();
-        // match object {
-        //     Some(val) => { AnyObject::from(val.value) },
-        //     None =>  NilClass::new().into()
-        // }
-        // AnyObject::from(object.value)
-        // AnyException::new("MyGem::MyError", None).into()
     }
 );
 
@@ -104,7 +98,7 @@ pub extern "C" fn Init_ruby_example() {
     Class::new("RubyStore", None).define(|klass| {
         klass.def_self("new", ruby_new);
         klass.def("insert", ruby_insert);
-        klass.def("get", ruby_get);
+        klass.def_private("rs_get", rs_get);
     });
 }
 
@@ -114,19 +108,6 @@ mod tests {
     use ccache::in_memory_store::InMemoryStore;
     use rutie::{AnyException, Class, Exception, Object};
     use rutie::{Boolean, VM};
-
-    #[test]
-    fn it_works2() {
-        VM::init();
-        let mut klass = Class::new("MyGem", None);
-        let se = Class::from_existing("StandardError");
-        let _ = klass.define_nested_class("MyError", Some(&se));
-
-        assert_eq!(
-            AnyException::new("MyGem::MyError", None).to_s(),
-            "MyGem::MyError"
-        );
-    }
 
     #[test]
     fn it_works() {
