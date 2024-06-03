@@ -1,15 +1,36 @@
 RSpec.describe RubyExample do
-  describe 'RubyStore' do
-    let(:ruby_store) {
-      RubyStore.new("redis://127.0.0.1/")
-    }
+  let(:ruby_store) {
+    RubyStore.new("redis://127.0.0.1/")
+  }
 
+  describe 'RubyStore' do
     class Foo
       attr_reader :a, :b
 
       def initialize(a, b)
         @a, @b = a, b
       end
+    end
+
+    it 'none exist key' do
+      rv = ruby_store.get('none-exist-key')
+      expect(rv).to eq nil
+    end
+
+    it 'insert returns etag' do
+      etag = ruby_store.insert('some-key', true)
+      expect(etag).not_to eq nil
+      expect(etag.to_i).not_to eq 0
+    end
+
+    it 'gets return nil' do
+      rv = ruby_store.get('none-exist-key')
+      expect(rv).to eq nil
+    end
+
+    it 'get works for integer' do
+      rv = ruby_store.get(1)
+      expect(rv).to eq nil
     end
 
     it 'works for simple obj' do
@@ -57,6 +78,14 @@ RSpec.describe RubyExample do
 
         expect(fetched).to eq ['a']
       end
+    end
+  end
+
+  describe 'exception handling' do
+    it 'should raise redis exception' do
+      RubyStore.new("redis://-1.-1.-1.-1")
+    rescue => e
+      expect(e.class).to eq CcacheRedisError
     end
   end
 end
