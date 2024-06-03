@@ -10,7 +10,7 @@ use derive::Serializable;
 use flate2::Compression;
 use rutie::rubysys::string;
 use rutie::types::{c_char, c_long};
-use rutie::{AnyObject, Class, Object, RString};
+use rutie::{AnyObject, Class, Object, RString, AnyException, Exception, NilClass, VM};
 use std::io::Write;
 
 #[derive(Serializable, Debug)]
@@ -25,14 +25,16 @@ pub struct Store {
 }
 
 impl Store {
-    fn new(redis_url: &str) -> Self {
-        Store {
+    fn new(redis_url: &str) -> Result<Self, redis::RedisError> {
+        let redis_client = redis::Client::open(redis_url)?;
+        let redic_connection = redis_client.get_connection()?;
+
+        let store = Store {
             inner: ccache::in_memory_store::InMemoryStore::new(),
-            redis_client: redis::Client::open(redis_url)
-                .unwrap()
-                .get_connection()
-                .unwrap(),
-        }
+            redis_client: redic_connection
+        };
+
+        Ok(store)
     }
 }
 
@@ -44,8 +46,17 @@ methods!(
     rtself,
     fn ruby_new(redis_host: RString) -> AnyObject {
         let redis_host = redis_host.unwrap().to_string();
-        let store = Store::new(&redis_host);
-        Class::from_existing("RubyStore").wrap_data(store, &*STORE_WRAPPER)
+
+        match Store::new(&redis_host) {
+            Ok(store) => {
+                Class::from_existing("RubyStore").wrap_data(store, &*STORE_WRAPPER)
+            },
+            Err(error) => {
+                let standard_error = Class::from_existing("CcacheRedisError");
+                VM::raise(standard_error, &error.to_string());
+                NilClass::new().into()
+            }
+        }
     },
     fn ruby_insert(key: RString, obj: AnyObject) -> RString {
         let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
@@ -63,13 +74,23 @@ methods!(
     },
     fn ruby_get(key: RString) -> AnyObject {
         let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
-        let object = rbself
-            .inner
-            .get(key.unwrap().to_str(), &mut rbself.redis_client)
-            .unwrap()
-            .unwrap();
+        let result = rbself.inner.get(key.unwrap().to_str(), &mut rbself.redis_client);
 
-        AnyObject::from(object.value)
+        match result {
+            Ok(Some(val)) => { AnyObject::from(val.value) },
+            Ok(None) => { NilClass::new().into() },
+            Err(e) => AnyException::new(&e.to_string(), None).into()
+        }
+        // let object = rbself
+        //     .inner
+        //     .get(key.unwrap().to_str(), &mut rbself.redis_client)
+        //     .unwrap();
+        // match object {
+        //     Some(val) => { AnyObject::from(val.value) },
+        //     None =>  NilClass::new().into()
+        // }
+        // AnyObject::from(object.value)
+        // AnyException::new("MyGem::MyError", None).into()
     }
 );
 
@@ -88,6 +109,21 @@ mod tests {
     use super::*;
     use ccache::in_memory_store::InMemoryStore;
     use rutie::{Boolean, VM};
+    use rutie::{AnyException, Exception, Object, Class};
+
+
+    #[test]
+    fn it_works2() {
+        VM::init();
+        let mut klass = Class::new("MyGem", None);
+        let se = Class::from_existing("StandardError");
+        let _ = klass.define_nested_class("MyError", Some(&se));
+
+        assert_eq!(
+          AnyException::new("MyGem::MyError", None).to_s(),
+          "MyGem::MyError"
+        );
+    }
 
     #[test]
     fn it_works() {
