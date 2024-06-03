@@ -10,7 +10,7 @@ use derive::Serializable;
 use flate2::Compression;
 use rutie::rubysys::string;
 use rutie::types::{c_char, c_long};
-use rutie::{AnyObject, Class, Object, RString, AnyException, Exception, NilClass, VM};
+use rutie::{AnyException, AnyObject, Class, Exception, NilClass, Object, RString, VM};
 use std::io::Write;
 
 #[derive(Serializable, Debug)]
@@ -31,7 +31,7 @@ impl Store {
 
         let store = Store {
             inner: ccache::in_memory_store::InMemoryStore::new(),
-            redis_client: redic_connection
+            redis_client: redic_connection,
         };
 
         Ok(store)
@@ -48,38 +48,42 @@ methods!(
         let redis_host = redis_host.unwrap().to_string();
 
         match Store::new(&redis_host) {
-            Ok(store) => {
-                Class::from_existing("RubyStore").wrap_data(store, &*STORE_WRAPPER)
-            },
+            Ok(store) => Class::from_existing("RubyStore").wrap_data(store, &*STORE_WRAPPER),
             Err(error) => {
-                let standard_error = Class::from_existing("CcacheRedisError");
-                VM::raise(standard_error, &error.to_string());
+                let error_class = Class::from_existing("CcacheRedisError");
+                VM::raise(error_class, &error.to_string());
                 NilClass::new().into()
             }
         }
     },
-    fn ruby_insert(key: RString, obj: AnyObject) -> RString {
+    fn ruby_insert(key: RString, obj: AnyObject) -> AnyObject {
         let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
         let ruby_object = RubyObject {
             value: obj.unwrap().value(),
         };
 
-        let _ = rbself
+        match rbself
             .inner
             .insert(key.unwrap().to_str(), ruby_object, &mut rbself.redis_client)
-            .unwrap();
-
-        // TODO: return etag as sting
-        RString::new_utf8("")
+        {
+            Ok(etag) => RString::new_utf8(&String::from_utf8(etag).unwrap()).into(),
+            Err(error) => {
+                let error_class = Class::from_existing("CcacheRedisError");
+                VM::raise(error_class, &error.to_string());
+                NilClass::new().into()
+            }
+        }
     },
     fn ruby_get(key: RString) -> AnyObject {
         let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
-        let result = rbself.inner.get(key.unwrap().to_str(), &mut rbself.redis_client);
+        let result = rbself
+            .inner
+            .get(key.unwrap().to_str(), &mut rbself.redis_client);
 
         match result {
-            Ok(Some(val)) => { AnyObject::from(val.value) },
-            Ok(None) => { NilClass::new().into() },
-            Err(e) => AnyException::new(&e.to_string(), None).into()
+            Ok(Some(val)) => AnyObject::from(val.value),
+            Ok(None) => NilClass::new().into(),
+            Err(e) => AnyException::new(&e.to_string(), None).into(),
         }
         // let object = rbself
         //     .inner
@@ -108,9 +112,8 @@ pub extern "C" fn Init_ruby_example() {
 mod tests {
     use super::*;
     use ccache::in_memory_store::InMemoryStore;
+    use rutie::{AnyException, Class, Exception, Object};
     use rutie::{Boolean, VM};
-    use rutie::{AnyException, Exception, Object, Class};
-
 
     #[test]
     fn it_works2() {
@@ -120,8 +123,8 @@ mod tests {
         let _ = klass.define_nested_class("MyError", Some(&se));
 
         assert_eq!(
-          AnyException::new("MyGem::MyError", None).to_s(),
-          "MyGem::MyError"
+            AnyException::new("MyGem::MyError", None).to_s(),
+            "MyGem::MyError"
         );
     }
 
