@@ -12,6 +12,8 @@ use rutie::rubysys::string;
 use rutie::types::{c_char, c_long};
 use rutie::{AnyObject, Class, NilClass, Object, RString, VM};
 use std::io::Write;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Serializable, Debug)]
 #[encode_decode(lan = "ruby")]
@@ -22,6 +24,7 @@ pub struct RubyObject {
 pub struct Store {
     inner: ccache::in_memory_store::InMemoryStore<RubyObject>,
     redis_client: redis::Connection,
+    hash_map: HashMap<String, Arc<RubyObject>>,
 }
 
 impl Store {
@@ -32,6 +35,7 @@ impl Store {
         let store = Store {
             inner: ccache::in_memory_store::InMemoryStore::new(),
             redis_client: redic_connection,
+            hash_map: HashMap::new()
         };
 
         Ok(store)
@@ -55,6 +59,22 @@ methods!(
                 NilClass::new().into()
             }
         }
+    },
+    fn ruby_test_insert(key: RString, obj: AnyObject) -> AnyObject {
+        let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
+        let ruby_object = RubyObject {
+            value: obj.unwrap().value(),
+        };
+        rbself.hash_map.insert(key.unwrap().to_string(),  Arc::new(ruby_object));
+
+        NilClass::new().into()
+    },
+    fn ruby_test_get(rb_key: RString) -> AnyObject {
+        let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
+        let key = rb_key.unwrap().to_string();
+        let val = rbself.hash_map.get(&key).unwrap();
+
+        AnyObject::from(val.value)
     },
     fn ruby_insert(key: RString, obj: AnyObject) -> AnyObject {
         let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
@@ -98,6 +118,8 @@ pub extern "C" fn Init_ruby_example() {
     Class::new("RubyStore", None).define(|klass| {
         klass.def_self("new", ruby_new);
         klass.def("insert", ruby_insert);
+        klass.def("rs_test_insert", ruby_test_insert);
+        klass.def("test_get", ruby_test_get);
         klass.def_private("rs_get", rs_get);
     });
 }
@@ -106,7 +128,7 @@ pub extern "C" fn Init_ruby_example() {
 mod tests {
     use super::*;
     use ccache::in_memory_store::InMemoryStore;
-    use rutie::{AnyException, Class, Exception, Object};
+    use rutie::Object;
     use rutie::{Boolean, VM};
 
     #[test]

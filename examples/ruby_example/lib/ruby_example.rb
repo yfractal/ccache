@@ -12,4 +12,9 @@ class RubyStore
   def get(key)
     rs_get(key.to_s)
   end
+
+  def test_insert(key, val)
+    @val = val
+    rs_test_insert(key, val)
+  end
 end

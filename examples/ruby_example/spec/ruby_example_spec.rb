@@ -106,4 +106,22 @@ RSpec.describe RubyExample do
       expect(val.b).to eq 2
     end
   end
+
+  describe "GC example" do
+    def insert
+      ruby_store.test_insert("key", Foo.new(1, 2))
+    end
+
+    it "inserted value should not be garbage collected" do
+      insert
+
+      GC.start # trigger gc manually
+
+      val = ruby_store.test_get("key")
+
+      expect(val.class).to eq Foo
+      expect(val.a).to eq 1
+      expect(val.b).to eq 2
+    end
+  end
 end
