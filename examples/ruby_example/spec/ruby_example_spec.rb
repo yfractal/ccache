@@ -88,4 +88,22 @@ RSpec.describe RubyExample do
       expect(e.class).to eq CcacheRedisError
     end
   end
+
+  describe "GC" do
+    def insert
+      ruby_store.insert("key", Foo.new(1, 2))
+    end
+
+    it "inserted value should not be garbage collected" do
+      insert
+
+      GC.start # trigger gc manually
+
+      val = ruby_store.get("key")
+
+      expect(val.class).to eq Foo
+      expect(val.a).to eq 1
+      expect(val.b).to eq 2
+    end
+  end
 end
