@@ -21,6 +21,12 @@ pub struct RubyObject {
     pub value: rutie::types::Value,
 }
 
+impl Drop for RubyObject {
+    // drop nothing, gc was handled by Ruby
+    fn drop(&mut self) {
+    }
+}
+
 pub struct Store {
     inner: ccache::in_memory_store::InMemoryStore<RubyObject>,
     redis_client: redis::Connection,
@@ -59,22 +65,6 @@ methods!(
                 NilClass::new().into()
             }
         }
-    },
-    fn ruby_test_insert(key: RString, obj: AnyObject) -> AnyObject {
-        let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
-        let ruby_object = RubyObject {
-            value: obj.unwrap().value(),
-        };
-        rbself.hash_map.insert(key.unwrap().to_string(),  Arc::new(ruby_object));
-
-        NilClass::new().into()
-    },
-    fn ruby_test_get(rb_key: RString) -> AnyObject {
-        let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
-        let key = rb_key.unwrap().to_string();
-        let val = rbself.hash_map.get(&key).unwrap();
-
-        AnyObject::from(val.value)
     },
     fn ruby_insert(key: RString, obj: AnyObject) -> AnyObject {
         let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
@@ -117,9 +107,7 @@ methods!(
 pub extern "C" fn Init_ruby_example() {
     Class::new("RubyStore", None).define(|klass| {
         klass.def_self("new", ruby_new);
-        klass.def("insert", ruby_insert);
-        klass.def("rs_test_insert", ruby_test_insert);
-        klass.def("test_get", ruby_test_get);
+        klass.def("rs_insert", ruby_insert);
         klass.def_private("rs_get", rs_get);
     });
 }

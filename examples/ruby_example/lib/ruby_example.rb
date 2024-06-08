@@ -13,8 +13,8 @@ class RubyStore
     rs_get(key.to_s)
   end
 
-  def test_insert(key, val)
+  def insert(key, val)
     @val = val
-    rs_test_insert(key, val)
+    rs_insert(key, val)
   end
 end
