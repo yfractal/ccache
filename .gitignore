@@ -1,3 +1,4 @@
 /target
 /examples/ruby_example/target/
 /benches/ccache_bench/target/
+/ccache_rb/target/

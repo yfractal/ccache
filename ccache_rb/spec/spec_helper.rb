@@ -1,5 +1,6 @@
-require "bundler/setup"
-require "ruby_example"
+# frozen_string_literal: true
+
+require "ccache_rb"
 require "byebug"
 
 RSpec.configure do |config|

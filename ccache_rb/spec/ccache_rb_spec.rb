@@ -1,4 +1,6 @@
-RSpec.describe RubyExample do
+# frozen_string_literal: true
+
+RSpec.describe CcacheRb do
   let(:ruby_store) {
     RubyStore.new("redis://127.0.0.1/")
   }

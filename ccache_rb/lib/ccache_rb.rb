@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 
-require 'ruby_example/version'
 require 'rutie'
 require 'ccache_list'
+require_relative "ccache_rb/version"
 
 class CcacheRedisError < StandardError; end
 
-module RubyExample
-  Rutie.new(:ruby_example).init 'Init_ruby_example', __dir__
+module CcacheRb
+  Rutie.new(:ruby_example).init 'Init_ccache_rb', __dir__
 end
 
 module ReferenceKeeper
