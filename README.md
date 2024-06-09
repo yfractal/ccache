@@ -18,6 +18,11 @@ However, it only guarantees weak consistency. For example, when clients request 
 
 Ccache offers strong consistency guarantees by co-designing the client-server interaction through the ETag likes mechanism.
 
+# Multiple Languages Support
+- Rust: [ccache](./)
+- Ruby: [ccache_rb](./ccache_rb/)
+- Golang: in progress
+
 ## Use Case
 
 Sometimes, applications cache large-sized data in Redis, which causes significant latency due to serialization and deserialization.
