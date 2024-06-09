@@ -1,10 +1,12 @@
-require "ruby_example/version"
+# frozen_string_literal: true
+
+require 'ruby_example/version'
 require 'rutie'
+require 'ccache_list'
 
 class CcacheRedisError < StandardError; end
 
 module RubyExample
-  # Your code goes here...
   Rutie.new(:ruby_example).init 'Init_ruby_example', __dir__
 end
 
@@ -16,5 +18,8 @@ class RubyStore
   def insert(key, val)
     @val = val
     rs_insert(key, val)
+  end
+
+  def keep_val(val)
   end
 end
