@@ -5,7 +5,9 @@ extern crate lazy_static;
 
 use ccache::errors::DecodeError;
 use ccache::errors::EncodeError;
+use ccache::in_memory_store::GetResult;
 use ccache::serializable::Serializable;
+
 use derive::Serializable;
 use flate2::Compression;
 use rutie::rubysys::string;
@@ -21,8 +23,7 @@ pub struct RubyObject {
 
 impl Drop for RubyObject {
     // drop nothing, gc was handled by Ruby
-    fn drop(&mut self) {
-    }
+    fn drop(&mut self) {}
 }
 
 pub struct Store {
@@ -37,7 +38,7 @@ impl Store {
 
         let store = Store {
             inner: ccache::in_memory_store::InMemoryStore::new(),
-            redis_client: redic_connection
+            redis_client: redic_connection,
         };
 
         Ok(store)
@@ -88,8 +89,9 @@ methods!(
             .get(key.unwrap().to_str(), &mut rbself.redis_client);
 
         match result {
-            Ok(Some(val)) => AnyObject::from(val.value),
-            Ok(None) => NilClass::new().into(),
+            Ok(GetResult::New(val)) => AnyObject::from(val.value),
+            Ok(GetResult::Unchanged(val)) => AnyObject::from(val.value),
+            Ok(GetResult::None) => NilClass::new().into(),
             Err(error) => {
                 let error_class = Class::from_existing("CcacheRedisError");
                 VM::raise(error_class, &error.to_string());

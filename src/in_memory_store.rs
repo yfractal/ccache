@@ -32,7 +32,22 @@ pub struct InMemoryStore<T: Serializable> {
 enum GetThroughLocalResult {
     None,
     Unchanged,
-    Pair(Vec<u8>, Vec<u8>),
+    New(Vec<u8>, Vec<u8>),
+}
+pub enum GetResult<T> {
+    None,
+    Unchanged(T),
+    New(T),
+}
+
+impl<T> GetResult<T> {
+    pub fn unwrap(self) -> T {
+        match self {
+            GetResult::Unchanged(val) => val,
+            GetResult::New(val) => val,
+            GetResult::None => panic!("called `GetResult::unwrap()` on a `None` value"),
+        }
+    }
 }
 
 const GET_FROM_REDIS_SCRIPT: &str = r#"
@@ -94,7 +109,7 @@ impl<T: Serializable> InMemoryStore<T> {
         &self,
         key: &str,
         redis_conn: &mut redis::Connection,
-    ) -> Result<Option<Arc<T>>, redis::RedisError> {
+    ) -> Result<GetResult<Arc<T>>, redis::RedisError> {
         let uuid = Uuid::new_v4();
 
         probe!(
@@ -112,14 +127,14 @@ impl<T: Serializable> InMemoryStore<T> {
 
                         probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
 
-                        Ok(Some(obj.clone()))
+                        Ok(GetResult::Unchanged(obj.clone()))
                     }
                     Ok(GetThroughLocalResult::None) => {
                         probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
 
-                        Ok(None)
+                        Ok(GetResult::None)
                     },
-                    Ok(GetThroughLocalResult::Pair(val, etag)) => {
+                    Ok(GetThroughLocalResult::New(val, etag)) => {
                         let (decoded, _): (T, usize) = T::deserialize(&val, &self.coder_config).unwrap();
                         let decoded_arc = Arc::new(decoded);
                         drop(data);
@@ -129,7 +144,7 @@ impl<T: Serializable> InMemoryStore<T> {
 
                         probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
 
-                        Ok(Some(decoded_arc))
+                        Ok(GetResult::New(decoded_arc))
                     }
                     Err(e) => {
                         probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
@@ -142,7 +157,7 @@ impl<T: Serializable> InMemoryStore<T> {
                 if redis_result.is_empty() {
                     probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
 
-                    Ok(None) // redis missed
+                    Ok(GetResult::None) // redis missed
                 } else {
                     let val = redis_result.get("val").unwrap();
 
@@ -158,7 +173,7 @@ impl<T: Serializable> InMemoryStore<T> {
 
                     probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
 
-                    Ok(Some(decoded_arc))
+                    Ok(GetResult::New(decoded_arc))
                 }
             }
         }
@@ -254,7 +269,7 @@ fn try_get_from_local(
     } else {
         let val = redis_result.get("val").unwrap().to_vec();
         let etag = redis_result.get("etag").unwrap();
-        Ok(GetThroughLocalResult::Pair(val, etag.clone()))
+        Ok(GetThroughLocalResult::New(val, etag.clone()))
     }
 }
 
