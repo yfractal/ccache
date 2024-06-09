@@ -23,6 +23,14 @@ RSpec.describe RubyExample do
       expect(etag.to_i).not_to eq 0
     end
 
+    it 'get value from redis' do
+      store = RubyStore.new('redis://127.0.0.1/')
+      store.insert('one-key', 123456)
+
+      rv = ruby_store.get('one-key')
+      expect(rv).to eq 123456
+    end
+
     it 'gets return nil' do
       rv = ruby_store.get('none-exist-key')
       expect(rv).to eq nil
@@ -135,7 +143,7 @@ RSpec.describe RubyExample do
     end
 
     it 'Ruby should collect unreferenced objects' do
-      skip "too slow..."
+      skip "when ruby_store has been reclaimed, it should clear Rust struct"
 
       total = 100_000
       ruby_store
@@ -147,13 +155,13 @@ RSpec.describe RubyExample do
       total.times { insert_random(ruby_store) }
 
       ruby_store = nil
+      sleep 0.1
 
       GC.start
 
       after = ObjectSpace.count_objects[:TOTAL]
       memory_after = memory_usage
 
-      # TODO: check memory allocates, it seems have unclaimed object
       expect(after - before).to be < 100_000 / 2
       expect(memory_after - memory_before).to be < 20_000
     end

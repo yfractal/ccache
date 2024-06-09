@@ -65,16 +65,22 @@ methods!(
     },
     fn ruby_insert(key: RString, obj: AnyObject) -> AnyObject {
         let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
+        let k = key.unwrap();
+        let val = obj.unwrap().value();
 
-        let ruby_object = RubyObject {
-            value: obj.unwrap().value(),
-        };
+        let ruby_object = RubyObject { value: val };
 
         match rbself
             .inner
-            .insert(key.unwrap().to_str(), ruby_object, &mut rbself.redis_client)
+            .insert(k.to_str(), ruby_object, &mut rbself.redis_client)
         {
-            Ok(etag) => RString::new_utf8(&String::from_utf8(etag).unwrap()).into(),
+            Ok(etag) => {
+                unsafe {
+                    rtself.send("keep", &[k.into(), AnyObject::from(val)]);
+                }
+
+                RString::new_utf8(&String::from_utf8(etag).unwrap()).into()
+            }
             Err(error) => {
                 let error_class = Class::from_existing("CcacheRedisError");
                 VM::raise(error_class, &error.to_string());
@@ -83,13 +89,18 @@ methods!(
         }
     },
     fn rs_get(key: RString) -> AnyObject {
+        let k = key.unwrap();
         let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
-        let result = rbself
-            .inner
-            .get(key.unwrap().to_str(), &mut rbself.redis_client);
+        let result = rbself.inner.get(k.to_str(), &mut rbself.redis_client);
 
         match result {
-            Ok(GetResult::New(val)) => AnyObject::from(val.value),
+            Ok(GetResult::New(val)) => {
+                unsafe {
+                    rtself.send("keep", &[k.into(), AnyObject::from(val.value)]);
+                }
+
+                AnyObject::from(val.value)
+            }
             Ok(GetResult::Unchanged(val)) => AnyObject::from(val.value),
             Ok(GetResult::None) => NilClass::new().into(),
             Err(error) => {

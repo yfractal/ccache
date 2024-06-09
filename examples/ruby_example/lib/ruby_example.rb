@@ -12,17 +12,17 @@ end
 
 module ReferenceKeeper
   # TODO: handle concurrency
-  def keep(ref)
-    @ref_to_node ||= {}
+  def keep(key, ref)
+    @key_to_node ||= {}
     @ref_list ||= CcacheList.new
 
     node = @ref_list.append(ref)
-    @ref_to_node[ref] = node
+    @key_to_node[key] = node
   end
 
-  def drop(ref)
-    node = @ref_to_node[ref]
-    @ref_to_node.delete(ref)
+  def drop(key)
+    node = @key_to_node[key]
+    @key_to_node.delete(key)
     @ref_list.delete(node)
   end
 end
@@ -35,9 +35,6 @@ class RubyStore
   end
 
   def insert(key, val)
-    keep(val)
-
-    @val = val
     rs_insert(key, val)
   end
 end
