@@ -114,7 +114,7 @@ methods!(
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn Init_ruby_example() {
+pub extern "C" fn Init_ccache_rb() {
     Class::new("RubyStore", None).define(|klass| {
         klass.def_self("new", ruby_new);
         klass.def("rs_insert", ruby_insert);
