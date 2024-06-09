@@ -5,7 +5,9 @@ extern crate lazy_static;
 
 use ccache::errors::DecodeError;
 use ccache::errors::EncodeError;
+use ccache::in_memory_store::GetResult;
 use ccache::serializable::Serializable;
+
 use derive::Serializable;
 use flate2::Compression;
 use rutie::rubysys::string;
@@ -17,6 +19,11 @@ use std::io::Write;
 #[encode_decode(lan = "ruby")]
 pub struct RubyObject {
     pub value: rutie::types::Value,
+}
+
+impl Drop for RubyObject {
+    // drop nothing, gc was handled by Ruby
+    fn drop(&mut self) {}
 }
 
 pub struct Store {
@@ -58,15 +65,22 @@ methods!(
     },
     fn ruby_insert(key: RString, obj: AnyObject) -> AnyObject {
         let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
-        let ruby_object = RubyObject {
-            value: obj.unwrap().value(),
-        };
+        let k = key.unwrap();
+        let val = obj.unwrap().value();
+
+        let ruby_object = RubyObject { value: val };
 
         match rbself
             .inner
-            .insert(key.unwrap().to_str(), ruby_object, &mut rbself.redis_client)
+            .insert(k.to_str(), ruby_object, &mut rbself.redis_client)
         {
-            Ok(etag) => RString::new_utf8(&String::from_utf8(etag).unwrap()).into(),
+            Ok(etag) => {
+                unsafe {
+                    rtself.send("keep", &[k.into(), AnyObject::from(val)]);
+                }
+
+                RString::new_utf8(&String::from_utf8(etag).unwrap()).into()
+            }
             Err(error) => {
                 let error_class = Class::from_existing("CcacheRedisError");
                 VM::raise(error_class, &error.to_string());
@@ -75,14 +89,20 @@ methods!(
         }
     },
     fn rs_get(key: RString) -> AnyObject {
+        let k = key.unwrap();
         let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
-        let result = rbself
-            .inner
-            .get(key.unwrap().to_str(), &mut rbself.redis_client);
+        let result = rbself.inner.get(k.to_str(), &mut rbself.redis_client);
 
         match result {
-            Ok(Some(val)) => AnyObject::from(val.value),
-            Ok(None) => NilClass::new().into(),
+            Ok(GetResult::New(val)) => {
+                unsafe {
+                    rtself.send("keep", &[k.into(), AnyObject::from(val.value)]);
+                }
+
+                AnyObject::from(val.value)
+            }
+            Ok(GetResult::Unchanged(val)) => AnyObject::from(val.value),
+            Ok(GetResult::None) => NilClass::new().into(),
             Err(error) => {
                 let error_class = Class::from_existing("CcacheRedisError");
                 VM::raise(error_class, &error.to_string());
@@ -97,7 +117,7 @@ methods!(
 pub extern "C" fn Init_ruby_example() {
     Class::new("RubyStore", None).define(|klass| {
         klass.def_self("new", ruby_new);
-        klass.def("insert", ruby_insert);
+        klass.def("rs_insert", ruby_insert);
         klass.def_private("rs_get", rs_get);
     });
 }
@@ -106,7 +126,7 @@ pub extern "C" fn Init_ruby_example() {
 mod tests {
     use super::*;
     use ccache::in_memory_store::InMemoryStore;
-    use rutie::{AnyException, Class, Exception, Object};
+    use rutie::Object;
     use rutie::{Boolean, VM};
 
     #[test]
