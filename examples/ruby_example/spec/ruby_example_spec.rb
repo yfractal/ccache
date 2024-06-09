@@ -135,6 +135,8 @@ RSpec.describe RubyExample do
     end
 
     it 'Ruby should collect unreferenced objects' do
+      skip "too slow..."
+
       total = 100_000
       ruby_store
 

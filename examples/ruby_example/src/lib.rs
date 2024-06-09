@@ -12,8 +12,6 @@ use rutie::rubysys::string;
 use rutie::types::{c_char, c_long};
 use rutie::{AnyObject, Class, NilClass, Object, RString, VM};
 use std::io::Write;
-use std::collections::HashMap;
-use std::sync::Arc;
 
 #[derive(Serializable, Debug)]
 #[encode_decode(lan = "ruby")]
@@ -30,7 +28,6 @@ impl Drop for RubyObject {
 pub struct Store {
     inner: ccache::in_memory_store::InMemoryStore<RubyObject>,
     redis_client: redis::Connection,
-    hash_map: HashMap<String, Arc<RubyObject>>,
 }
 
 impl Store {
@@ -40,8 +37,7 @@ impl Store {
 
         let store = Store {
             inner: ccache::in_memory_store::InMemoryStore::new(),
-            redis_client: redic_connection,
-            hash_map: HashMap::new()
+            redis_client: redic_connection
         };
 
         Ok(store)
@@ -68,6 +64,7 @@ methods!(
     },
     fn ruby_insert(key: RString, obj: AnyObject) -> AnyObject {
         let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
+
         let ruby_object = RubyObject {
             value: obj.unwrap().value(),
         };
