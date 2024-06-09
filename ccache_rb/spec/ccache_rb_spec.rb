@@ -1,8 +1,14 @@
 # frozen_string_literal: true
 
 RSpec.describe CcacheRb do
+  def memory_usage
+    _, size = `ps ax -o pid,rss | grep -E "^[[:space:]]*#{$$}"`.strip.split.map(&:to_i)
+
+    size
+  end
+
   let(:ruby_store) {
-    RubyStore.new("redis://127.0.0.1/")
+    RubyStore.new('redis://127.0.0.1/')
   }
 
   describe 'RubyStore' do
@@ -14,79 +20,109 @@ RSpec.describe CcacheRb do
       end
     end
 
-    it 'none exist key' do
-      rv = ruby_store.get('none-exist-key')
-      expect(rv).to eq nil
-    end
-
-    it 'insert returns etag' do
-      etag = ruby_store.insert('some-key', true)
-      expect(etag).not_to eq nil
-      expect(etag.to_i).not_to eq 0
-    end
-
-    it 'get value from redis' do
-      store = RubyStore.new('redis://127.0.0.1/')
-      store.insert('one-key', 123456)
-
-      rv = ruby_store.get('one-key')
-      expect(rv).to eq 123456
-    end
-
-    it 'gets return nil' do
-      rv = ruby_store.get('none-exist-key')
-      expect(rv).to eq nil
-    end
-
-    it 'get works for integer' do
-      rv = ruby_store.get(1)
-      expect(rv).to eq nil
-    end
-
-    it 'works for simple obj' do
-      ruby_store.insert('some-key', true)
-      expect(ruby_store.get('some-key')).to eq true
-    end
-
-    it 'works for obj' do
-      foo = Foo.new(1, "b")
-      ruby_store.insert('some-key', foo)
-      fetched = ruby_store.get('some-key')
-
-      expect(fetched.a).to eq 1
-      expect(fetched.b).to eq 'b'
-      expect(fetched).to eq foo
-    end
-
-    describe 'hash' do
-      it 'empty hash' do
-        ruby_store.insert('some-key', {})
-        fetched = ruby_store.get('some-key')
-
-        expect(fetched).to eq({})
+    describe 'get' do
+      it 'gets unexist key' do
+        rv = ruby_store.get('unexist-key')
+        expect(rv).to eq nil
       end
 
-      it 'simple hash' do
-        ruby_store.insert('some-key', {:a => 1})
-        fetched = ruby_store.get('some-key')
+      it 'gets value from redis' do
+        store = RubyStore.new('redis://127.0.0.1/')
+        store.insert('one-key', 123456)
+  
+        rv = ruby_store.get('one-key')
+        expect(rv).to eq 123456
+      end
 
-        expect(fetched).to eq({:a => 1})
+      it 'key can be integer' do
+        rv = ruby_store.get(1)
+        expect(rv).to eq nil
       end
     end
 
-    describe 'array' do
-      it 'empaty array' do
-        ruby_store.insert('some-key', [])
-        fetched = ruby_store.get('some-key')
+    describe 'insert' do
+      it 'insert returns etag' do
+        etag = ruby_store.insert('some-key', true)
+        expect(etag).not_to eq nil
+        expect(etag.to_i).not_to eq 0
+      end
+    end
 
-        expect(fetched).to eq []
+    describe 'works for different type value' do
+      describe 'number' do
+        it 'works for number' do
+          ruby_store.insert('number-key', 0)
+          fetched = ruby_store.get('number-key')
+          expect(fetched).to eq(0)
+
+          ruby_store.insert('number-key', -1)
+          fetched = ruby_store.get('number-key')
+          expect(fetched).to eq(-1)
+
+          ruby_store.insert('number-key', -1.00001)
+          fetched = ruby_store.get('number-key')
+          expect(fetched).to eq(-1.00001)
+        end
       end
 
-      it 'simple array' do
-        ruby_store.insert('some-key', ['a'])
-        fetched = ruby_store.get('some-key')
+      describe 'string' do
+        it 'works for empty string' do
+          ruby_store.insert('str-key', '')
+          fetched = ruby_store.get('str-key')
+  
+          expect(fetched).to eq('')
+        end
 
-        expect(fetched).to eq ['a']
+        it 'works for empty string' do
+          ruby_store.insert('str-key', 'abc')
+          fetched = ruby_store.get('str-key')
+  
+          expect(fetched).to eq('abc')
+        end
+      end
+
+      describe 'hash' do
+        it 'empty hash' do
+          ruby_store.insert('some-key', {})
+          fetched = ruby_store.get('some-key')
+  
+          expect(fetched).to eq({})
+        end
+  
+        it 'simple hash' do
+          ruby_store.insert('some-key', {:a => 1})
+          fetched = ruby_store.get('some-key')
+  
+          expect(fetched).to eq({:a => 1})
+        end
+      end
+
+      describe 'array' do
+        it 'empaty array' do
+          ruby_store.insert('some-key', [])
+          fetched = ruby_store.get('some-key')
+  
+          expect(fetched).to eq []
+        end
+  
+        it 'simple array' do
+          ruby_store.insert('some-key', ['a'])
+          fetched = ruby_store.get('some-key')
+  
+          expect(fetched).to eq ['a']
+        end
+      end
+
+      describe 'works for defined class' do
+        it 'simpl class' do
+          foo = Foo.new(1, "b")
+          ruby_store.insert('some-key', foo)
+          fetched = ruby_store.get('some-key')
+    
+          expect(fetched.a).to eq 1
+          expect(fetched.b).to eq 'b'
+          expect(fetched).to eq foo
+        end
       end
     end
   end
@@ -100,41 +136,14 @@ RSpec.describe CcacheRb do
   end
 
   describe "GC" do
-    def insert
-      ruby_store.insert("key", Foo.new(1, 2))
-    end
-
-    it "inserted value should not be garbage collected" do
-      insert
-
-      GC.start # trigger gc manually
-
-      val = ruby_store.get("key")
-
-      expect(val.class).to eq Foo
-      expect(val.a).to eq 1
-      expect(val.b).to eq 2
-    end
-  end
-
-  describe "GC example" do
-    def memory_usage
-      _, size = `ps ax -o pid,rss | grep -E "^[[:space:]]*#{$$}"`.strip.split.map(&:to_i)
-
-      size
-    end
-
-    def insert
-      ruby_store.insert("key", Foo.new(1, 2))
-    end
-
     def insert_random(ruby_store)
       ruby_store.insert("key", Foo.new(rand, rand))
     end
 
-    it 'inserted value should not be garbage collected' do
-      insert
+    it "inserted value should not be garbage collected" do
+      ruby_store.insert("key", Foo.new(1, 2))
 
+      sleep 0.1
       GC.start # trigger gc manually
 
       val = ruby_store.get("key")
@@ -145,7 +154,7 @@ RSpec.describe CcacheRb do
     end
 
     it 'Ruby should collect unreferenced objects' do
-      skip "when ruby_store has been reclaimed, it should clear Rust struct"
+      skip "TODO: when ruby_store has been reclaimed, should clear Rust struct too"
 
       total = 100_000
       ruby_store
@@ -164,38 +173,38 @@ RSpec.describe CcacheRb do
       after = ObjectSpace.count_objects[:TOTAL]
       memory_after = memory_usage
 
-      expect(after - before).to be < 100_000 / 2
-      expect(memory_after - memory_before).to be < 20_000
+      expect(after - before).to be < 1000
+      expect(memory_after - memory_before).to be < 1000
+    end
+  end
+
+  describe 'Ruby GC feature tests' do
+    it 'does not reclaim objects when they are referenced' do
+      total = 10_000
+      before = ObjectSpace.count_objects[:T_OBJECT]
+
+      array = Array.new(total) { Foo.new(rand, rand) }
+
+      GC.start
+
+      after = ObjectSpace.count_objects[:T_OBJECT]
+      expect(after - before).to be >= 9000
     end
 
-    describe 'Ruby GC feature tests' do
-      it 'does not reclaim objects when they are referenced' do
-        total = 10_000
-        before = ObjectSpace.count_objects[:T_OBJECT]
+    it 'collects unreferenced objects' do
+      total = 1_000_000
+      before = ObjectSpace.count_objects[:T_OBJECT]
+      memory_before = memory_usage
 
-        array = Array.new(total) { Foo.new(rand, rand) }
+      total.times { Foo.new(rand, rand) }
 
-        GC.start
+      GC.start
 
-        after = ObjectSpace.count_objects[:T_OBJECT]
-        expect(after - before).to be >= 9000
-      end
+      after = ObjectSpace.count_objects[:T_OBJECT]
+      memory_after = memory_usage
 
-      it 'collects unreferenced objects' do
-        total = 1_000_000
-        before = ObjectSpace.count_objects[:T_OBJECT]
-        memory_before = memory_usage
-
-        total.times { Foo.new(rand, rand) }
-
-        GC.start
-
-        after = ObjectSpace.count_objects[:T_OBJECT]
-        memory_after = memory_usage
-
-        expect(after - before).to be < 2000
-        expect(memory_after - memory_before).to be < 2000
-      end
+      expect(after - before).to be < 2000
+      expect(memory_after - memory_before).to be < 2000
     end
   end
 end
