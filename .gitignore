@@ -3,3 +3,4 @@
 /benches/ccache_bench/target/
 /ccache_rb/target/
 /ccache_rb/.rspec_status
+/ccache_go/target/
