@@ -11,6 +11,9 @@ Many backend servers save large dynamic settings in Redis. As this data grows, t
 
 The image above is a benchmark of Ccache compared to the default implementation (querying Redis and deserializing). We see that Ccache significantly decreases CPU time.
 
+## Current State
+This is an experiment project and still in POC stage.
+
 ## Why Ccache?
 Redis offers [client-side caching](https://redis.io/docs/latest/develop/use/client-side-caching/) to reduce latency and Redis load.
 
@@ -21,7 +24,7 @@ Ccache offers strong consistency guarantees by co-designing the client-server in
 ## Multiple Languages Support
 - Rust: [ccache](./)
 - Ruby: [ccache_rb](./ccache_rb/)
-- Golang: in progress
+- Golang: [WIP][ccache_go](./ccache_go/)
 
 ## Use Case
 
