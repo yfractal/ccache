@@ -6,21 +6,16 @@ package main
 #include <stdlib.h>
 
 // int encode(void* p1, void* p2);
-void call_greet(void* p1, void* p2);
+void ccache_init();
+void ccache_insert(const char *key, void* data_ptr, void* type_ptr);
 */
 import "C"
 import (
-        "fmt"
         "unsafe"
         "reflect"
-        // "bytes"
-	// "encoding/gob"
 )
 
-
-// Data is a Go struct representing the data you want to encode
 type Data struct {
-	// Define the fields you want to encode here
 	Name string
 	Age  int
 }
@@ -35,8 +30,10 @@ func main() {
         typePtr := unsafe.Pointer(&t)
         dataPtr := unsafe.Pointer(&data)
 
-        fmt.Printf("dataPtr %v\n", dataPtr)
-        fmt.Printf("typePtr %v\n", typePtr)
-        C.call_greet(dataPtr, typePtr)
-        // fmt.Printf("The result is %d\n", result)
+        C.ccache_init();
+
+        key := C.CString("some-key")
+        defer C.free(unsafe.Pointer(key))
+
+        C.ccache_insert(key, dataPtr, typePtr)
 }

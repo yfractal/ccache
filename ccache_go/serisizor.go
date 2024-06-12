@@ -5,46 +5,38 @@ import (
 	"bytes"
 	"encoding/gob"
 	"reflect"
-	// "errors"
 	"fmt"
 	"unsafe"
 )
 
-func Encode(data interface{}) ([]byte, error) {
-	fmt.Println("3333")
+func encode_helper(data interface{}) ([]byte, error) {
 	var buffer bytes.Buffer
 	encoder := gob.NewEncoder(&buffer)
 	err := encoder.Encode(data)
 	if err != nil {
-                fmt.Println("error???")
+        fmt.Println("error: ", err)
 		return nil, err
 	}
-	fmt.Println("Encode3 bytes!!!!!!....", buffer.Bytes())
+	fmt.Println("encode_helper bytes", buffer.Bytes())
 	return buffer.Bytes(), nil
 }
 
-//export CallEncode
-func CallEncode(dataPtr unsafe.Pointer, typePtr unsafe.Pointer, size *C.int) (*C.char) {
+//export Encode
+func Encode(dataPtr unsafe.Pointer, typePtr unsafe.Pointer, size *C.int) (*C.char) {
 	fmt.Printf("dataPtr %v\n", dataPtr)
 	fmt.Printf("typePtr %v\n", typePtr)
 
-	fmt.Println("call CallEncode")
 	retrievedType := *(*reflect.Type)(typePtr)
-	fmt.Println("111")
 	val := reflect.NewAt(retrievedType, dataPtr).Elem()
-	fmt.Println("111222")
-	// Convert reflect.Value to interface{}
 	any := val.Interface()
-	encodedBytes, err := Encode(any)
+	encodedBytes, err := encode_helper(any)
+
 	if err != nil {
-		fmt.Println("errr!!!!!", any)
+		fmt.Println("errr: ", err)
 		return nil
 	}
 
-	fmt.Println("Encoded bytes:", encodedBytes)
 	*size = C.int(len(encodedBytes))
 	encodedPtr := C.CBytes(encodedBytes)
 	return (*C.char)(encodedPtr)
 }
-
-// func main() {}
