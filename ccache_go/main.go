@@ -13,11 +13,16 @@ import "C"
 import (
         "unsafe"
         "reflect"
+        "fmt"
 )
 
 type Data struct {
 	Name string
 	Age  int
+}
+
+func pointerToStruct(ptr unsafe.Pointer) interface{} {
+	return *(*interface{})(ptr)
 }
 
 func main() {
@@ -26,14 +31,17 @@ func main() {
                 Age: 123,
         }
 
-        t := reflect.TypeOf(data)
-        typePtr := unsafe.Pointer(&t)
-        dataPtr := unsafe.Pointer(&data)
-
         C.ccache_init();
 
         key := C.CString("some-key")
         defer C.free(unsafe.Pointer(key))
 
-        C.ccache_insert(key, dataPtr, typePtr)
+        t := reflect.TypeOf(data)
+        typePtr := unsafe.Pointer(&t)
+        dataPtr := unsafe.Pointer(&data)
+
+        var l C.int
+        encoded := Encode(dataPtr, typePtr, &l)
+        decodedPtr := Decode(encoded, unsafe.Pointer(&t), 48)
+        fmt.Println("decodedData",  pointerToStruct(decodedPtr))
 }
