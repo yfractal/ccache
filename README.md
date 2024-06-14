@@ -24,7 +24,7 @@ Ccache offers strong consistency guarantees by co-designing the client-server in
 ## Multiple Languages Support
 - Rust: [ccache](./)
 - Ruby: [ccache_rb](./ccache_rb/)
-- Golang: [WIP][ccache_go](./ccache_go/)
+- Golang: [POC][ccache_go](./ccache_go/)
 
 ## Use Case
 

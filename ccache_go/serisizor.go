@@ -13,6 +13,7 @@ func decodeHelper(b []byte, t reflect.Type) (interface{}, error) {
 	decoded := createInstance(t)
 	buffer := bytes.NewBuffer(b)
 	decoder := gob.NewDecoder(buffer)
+
 	err := decoder.Decode(decoded)
 
 	if err != nil {
