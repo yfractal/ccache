@@ -1,6 +1,8 @@
+use crate::partitioned_hash_map::PartitionedHashMap;
 use crate::serializable::Serializable;
 use crate::trace;
 
+use std::collections::hash_map::RandomState;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -10,23 +12,21 @@ use probe::probe;
 use redis::Script;
 use uuid::Uuid;
 
-pub struct Data<T: Serializable> {
-    pub etags: HashMap<String, Vec<u8>>,
-    pub structs: HashMap<String, Arc<T>>,
-}
+struct DataInner<T>(Vec<u8>, Arc<T>);
 
-impl<T: Serializable> Data<T> {
-    pub fn new() -> Self {
-        Data {
-            structs: HashMap::new(),
-            etags: HashMap::new(),
-        }
+impl<T> DataInner<T> {
+    pub fn val(&self) -> Arc<T> {
+        self.1.clone()
+    }
+
+    pub fn etag(&self) -> &Vec<u8> {
+        &self.0
     }
 }
 
 pub struct InMemoryStore<T: Serializable> {
-    data: RwLock<Data<T>>,
-    pub coder_config: T::Config,
+    coder_config: T::Config,
+    map: PartitionedHashMap<String, Arc<DataInner<T>>, RandomState>,
 }
 
 enum GetThroughLocalResult {
@@ -34,6 +34,8 @@ enum GetThroughLocalResult {
     Unchanged,
     New(Vec<u8>, Vec<u8>),
 }
+
+#[derive(Debug)]
 pub enum GetResult<T> {
     None,
     Unchanged(T),
@@ -70,8 +72,8 @@ const ETAG_UNCHANGED: &[u8] = "-1".as_bytes();
 impl<T: Serializable> InMemoryStore<T> {
     pub fn new() -> Self {
         Self {
-            data: RwLock::new(Data::new()),
             coder_config: T::config(),
+            map: PartitionedHashMap::new(),
         }
     }
 
@@ -90,10 +92,13 @@ impl<T: Serializable> InMemoryStore<T> {
         );
 
         let val_arc = Arc::new(val);
+        let mut map = self.map.write_guard(key.to_string());
         let etag = self.insert_to_redis(uuid, key, val_arc.clone(), redis_conn)?;
-        let mut data = self.data.write().unwrap();
-        data.etags.insert(key.to_string(), etag.clone());
-        data.structs.insert(key.to_string(), val_arc.clone());
+
+        map.insert(
+            key.to_string(),
+            Arc::new(DataInner(etag.clone(), val_arc.clone())),
+        );
 
         probe!(
             ccache,
@@ -118,16 +123,16 @@ impl<T: Serializable> InMemoryStore<T> {
             trace::Event::new("get", "start", key, &uuid.to_string()).as_ptr()
         );
 
-        let data = self.data.read().unwrap();
+        let map = self.map.read_guard(key.to_string());
 
-        if_likely! {let Some(etag) = data.etags.get(key) => {
-                match try_get_from_local(uuid, key, etag, redis_conn) {
+        if_likely! {let Some(d) = map.get(key) => {
+            let etag = d.etag();
+            match try_get_from_local(uuid, key, etag, redis_conn) {
                     Ok(GetThroughLocalResult::Unchanged) => {
-                        let obj = data.structs.get(key).unwrap().clone();
-
                         probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
 
-                        Ok(GetResult::Unchanged(obj.clone()))
+                        // map' shard read lock release here
+                        Ok(GetResult::Unchanged(d.val().clone()))
                     }
                     Ok(GetThroughLocalResult::None) => {
                         probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
@@ -137,10 +142,11 @@ impl<T: Serializable> InMemoryStore<T> {
                     Ok(GetThroughLocalResult::New(val, etag)) => {
                         let (decoded, _): (T, usize) = T::deserialize(&val, &self.coder_config).unwrap();
                         let decoded_arc = Arc::new(decoded);
-                        drop(data);
-                        let mut data = self.data.write().unwrap();
-                        data.etags.insert(key.to_string(), etag);
-                        data.structs.insert(key.to_string(), decoded_arc.clone());
+
+                         // release read lock, acquire write lock and block read
+                        drop(map);
+                        let mut map = self.map.write_guard(key.to_string());
+                        map.insert(key.to_string(), Arc::new(DataInner(etag,  decoded_arc.clone())));
 
                         probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
 
@@ -166,10 +172,10 @@ impl<T: Serializable> InMemoryStore<T> {
                     let (decoded, _): (T, usize) = T::deserialize(&val, &self.coder_config).unwrap();
                     let decoded_arc = Arc::new(decoded);
 
-                    drop(data); // release read lock
-                    let mut data = self.data.write().unwrap(); // acquire write lock
-                    data.etags.insert(key.to_string(), etag.clone());
-                    data.structs.insert(key.to_string(), decoded_arc.clone());
+                    // release read lock, acquire write lock and block read
+                    drop(map);
+                    let mut map = self.map.write_guard(key.to_string());
+                    map.insert(key.to_string(), Arc::new(DataInner(etag.clone(),  decoded_arc.clone())));
 
                     probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
 
@@ -325,14 +331,30 @@ mod tests {
     use std::io::Write;
 
     impl<T: Serializable> InMemoryStore<T> {
-        pub fn delete_etag(&self, key: &str) {
-            let mut data = self.data.write().unwrap();
-            data.etags.remove(key).unwrap();
+        pub fn delete(&self, key: &str) {
+            let mut map = self.map.write_guard(key.to_string());
+            map.remove(key);
         }
 
-        pub fn update_etag(&self, key: &str, etag: &str) {
-            let mut data = self.data.write().unwrap();
-            *data.etags.get_mut(key).unwrap() = etag.as_bytes().to_vec();
+        pub fn update_etag(&self, key: &str, new_etag: &str) {
+            let mut map = self.map.write_guard(key.to_string());
+            let data: &mut Arc<DataInner<T>> = map.get_mut(key).unwrap();
+            let val = data.val();
+            map.insert(
+                key.to_string(),
+                Arc::new(DataInner(new_etag.as_bytes().to_vec(), val.clone())),
+            );
+        }
+    }
+
+    impl<T: PartialEq> PartialEq for GetResult<T> {
+        fn eq(&self, other: &Self) -> bool {
+            match (self, other) {
+                (GetResult::None, GetResult::None) => true,
+                (GetResult::Unchanged(a), GetResult::Unchanged(b)) => a == b,
+                (GetResult::New(a), GetResult::New(b)) => a == b,
+                _ => false,
+            }
         }
     }
 
@@ -392,9 +414,11 @@ mod tests {
     fn test_get_none_exist() {
         let mut ctx = setup::<World>();
         let in_memory_store = &ctx.in_memory_store;
-        let result = in_memory_store.get("non-exist-key", &mut ctx.redis_conn);
+        let result = in_memory_store
+            .get("non-exist-key", &mut ctx.redis_conn)
+            .unwrap();
 
-        assert_eq!(result, Ok(None));
+        assert_eq!(result, GetResult::None);
     }
 
     #[test]
@@ -406,7 +430,7 @@ mod tests {
         in_memory_store
             .insert("some-key", Entity { x: 0.0, y: 4.0 }, &mut ctx.redis_conn)
             .unwrap();
-        in_memory_store.delete_etag("some-key");
+        in_memory_store.delete("some-key");
 
         let result = in_memory_store
             .get("some-key", &mut ctx.redis_conn)
@@ -433,7 +457,8 @@ mod tests {
         let result = in_memory_store
             .get("some-key", &mut ctx.redis_conn)
             .unwrap();
-        assert_eq!(result, None);
+
+        assert_eq!(result, GetResult::None);
     }
 
     #[test]
@@ -441,7 +466,7 @@ mod tests {
         let mut ctx = setup();
         let in_memory_store = &mut ctx.in_memory_store;
 
-        // insert one and update etag
+        // insert one entity and update etag
         in_memory_store
             .insert("some-key", Entity { x: 0.0, y: 4.0 }, &mut ctx.redis_conn)
             .unwrap();
