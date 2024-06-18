@@ -34,13 +34,13 @@ impl<'a, K: 'a + Eq + Hash + core::fmt::Debug, V: Clone> PartitionedHashMap<K, V
         shard.get(&key).cloned()
     }
 
-    pub fn write_guard(&'a self, key: K) -> RwLockWriteGuard<'a, HashMap<K, V>> {
-        let idx = self.shard_idx(&key);
+    pub fn write_guard(&'a self, key: &K) -> RwLockWriteGuard<'a, HashMap<K, V>> {
+        let idx = self.shard_idx(key);
 
         unsafe { self._write_shard(idx) }
     }
 
-    pub fn read_guard(&'a self, key: K) -> RwLockReadGuard<'a, HashMap<K, V>> {
+    pub fn read_guard(&'a self, key: &K) -> RwLockReadGuard<'a, HashMap<K, V>> {
         let idx = self.shard_idx(&key);
 
         unsafe { self._read_shard(idx) }

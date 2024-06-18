@@ -92,7 +92,7 @@ impl<T: Serializable> InMemoryStore<T> {
         );
 
         let val_arc = Arc::new(val);
-        let mut map = self.map.write_guard(key.to_string());
+        let mut map = self.map.write_guard(&key.to_string());
         let etag = self.insert_to_redis(uuid, key, val_arc.clone(), redis_conn)?;
 
         map.insert(
@@ -123,7 +123,7 @@ impl<T: Serializable> InMemoryStore<T> {
             trace::Event::new("get", "start", key, &uuid.to_string()).as_ptr()
         );
 
-        let map = self.map.read_guard(key.to_string());
+        let map = self.map.read_guard(&key.to_string());
 
         if_likely! {let Some(d) = map.get(key) => {
             let etag = d.etag();
@@ -145,7 +145,7 @@ impl<T: Serializable> InMemoryStore<T> {
 
                          // release read lock, acquire write lock and block read
                         drop(map);
-                        let mut map = self.map.write_guard(key.to_string());
+                        let mut map = self.map.write_guard(&key.to_string());
                         map.insert(key.to_string(), Arc::new(DataInner(etag,  decoded_arc.clone())));
 
                         probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
@@ -174,7 +174,7 @@ impl<T: Serializable> InMemoryStore<T> {
 
                     // release read lock, acquire write lock and block read
                     drop(map);
-                    let mut map = self.map.write_guard(key.to_string());
+                    let mut map = self.map.write_guard(&key.to_string());
                     map.insert(key.to_string(), Arc::new(DataInner(etag.clone(),  decoded_arc.clone())));
 
                     probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
@@ -332,12 +332,12 @@ mod tests {
 
     impl<T: Serializable> InMemoryStore<T> {
         pub fn delete(&self, key: &str) {
-            let mut map = self.map.write_guard(key.to_string());
+            let mut map = self.map.write_guard(&key.to_string());
             map.remove(key);
         }
 
         pub fn update_etag(&self, key: &str, new_etag: &str) {
-            let mut map = self.map.write_guard(key.to_string());
+            let mut map = self.map.write_guard(&key.to_string());
             let data: &mut Arc<DataInner<T>> = map.get_mut(key).unwrap();
             let val = data.val();
             map.insert(
