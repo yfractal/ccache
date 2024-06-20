@@ -11,6 +11,19 @@ use probe::probe;
 use redis::Script;
 use uuid::Uuid;
 
+#[derive(Clone, Debug)]
+pub struct CcacheRedisError {
+    pub description: String,
+}
+
+impl From<redis::RedisError> for CcacheRedisError {
+    fn from(e: redis::RedisError) -> Self {
+        CcacheRedisError {
+            description: e.to_string()
+        }
+    }
+}
+
 struct DataInner<T>(Vec<u8>, Arc<T>);
 
 impl<T> DataInner<T> {
@@ -58,7 +71,7 @@ enum RedisResult<T> {
     None,
     Unchanged,
     New(Arc<T>),
-    // Error(redis::RedisError),
+    Error(CcacheRedisError),
 }
 
 struct RedisMessage<T> {
@@ -139,7 +152,7 @@ impl<T: Serializable> InMemoryStore<T> {
         &self,
         pair: Arc<(Mutex<RedisMessage<T>>, Condvar)>,
         data: Arc<DataInner<T>>,
-    ) -> Result<GetResult<Arc<T>>, redis::RedisError> {
+    ) -> Result<GetResult<Arc<T>>, CcacheRedisError> {
         let (lock, cvar) = &*pair.clone();
         let mut message = lock.lock().unwrap();
         message.waiting_count += 1;
@@ -151,12 +164,15 @@ impl<T: Serializable> InMemoryStore<T> {
                 Some(arc_result) => match &**arc_result {
                     RedisResult::None => {
                         return Ok(GetResult::None);
-                    }
+                    },
                     RedisResult::Unchanged => {
                         return Ok(GetResult::Unchanged(data.val().clone()));
-                    }
+                    },
                     RedisResult::New(arc_value) => {
                         return Ok(GetResult::New(arc_value.clone()));
+                    },
+                    RedisResult::Error(e) => {
+                        return Err(e.clone());
                     }
                 },
                 None => {
@@ -173,7 +189,7 @@ impl<T: Serializable> InMemoryStore<T> {
         &self,
         key: &str,
         redis_conn: &mut redis::Connection,
-    ) -> Result<GetResult<Arc<T>>, redis::RedisError> {
+    ) -> Result<GetResult<Arc<T>>, CcacheRedisError> {
         let uuid = Uuid::new_v4();
 
         probe!(
@@ -246,11 +262,11 @@ impl<T: Serializable> InMemoryStore<T> {
 
                                     let mut message = lock.lock().unwrap();
                                     message.notified = true;
-                                    // fix me, return redis error
-                                    message.redis_result = Some(Arc::new(RedisResult::None));
+                                    let ccache_error: CcacheRedisError = e.into();
+                                    message.redis_result = Some(Arc::new(RedisResult::Error(ccache_error.clone())));
                                     cvar.notify_one();
 
-                                    return Err(e);
+                                    return Err(ccache_error);
                                 },
                             }
                         },
