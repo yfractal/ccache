@@ -6,7 +6,7 @@ use std::collections::hash_map::RandomState;
 use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex};
 
-use likely_stable::{if_likely, likely, unlikely};
+use likely_stable::{likely, unlikely};
 use probe::probe;
 use redis::Script;
 use uuid::Uuid;
@@ -43,7 +43,7 @@ pub struct InMemoryStore<T: Serializable> {
         PartitionedHashMap<(String, String), Arc<(Mutex<RedisMessage<T>>, Condvar)>, RandomState>,
 }
 
-enum GetThroughLocalResult {
+enum RequestThroughLocalResult {
     None,
     Unchanged,
     New(Vec<u8>, Vec<u8>),
@@ -148,56 +148,6 @@ impl<T: Serializable> InMemoryStore<T> {
         Ok(etag)
     }
 
-    fn wait_for_request_cleanup(
-        &self,
-        message: &mut std::sync::MutexGuard<RedisMessage<T>>,
-        request_key: &(String, String),
-    ) {
-        message.waiting_count -= 1;
-        if message.waiting_count == 0 {
-            let mut write_shard = self.request_condvar.write_guard(&request_key);
-            write_shard.remove(request_key);
-        }
-    }
-
-    fn wait_for_request(
-        &self,
-        pair: Arc<(Mutex<RedisMessage<T>>, Condvar)>,
-        data: Arc<DataInner<T>>,
-        request_key: &(String, String),
-    ) -> Result<GetResult<Arc<T>>, CcacheRedisError> {
-        let (lock, cvar) = &*pair.clone();
-        let mut message = lock.lock().unwrap();
-        message.waiting_count += 1;
-
-        while !message.notified {
-            let mut message: std::sync::MutexGuard<RedisMessage<T>> = cvar.wait(message).unwrap();
-            self.wait_for_request_cleanup(&mut message, request_key);
-
-            match &mut message.redis_result {
-                Some(arc_result) => match &**arc_result {
-                    RedisResult::None => {
-                        return Ok(GetResult::None);
-                    }
-                    RedisResult::Unchanged => {
-                        return Ok(GetResult::Unchanged(data.val().clone()));
-                    }
-                    RedisResult::New(arc_value) => {
-                        return Ok(GetResult::New(arc_value.clone()));
-                    }
-                    RedisResult::Error(e) => {
-                        return Err(e.clone());
-                    }
-                },
-                None => {
-                    panic!("Something wrong");
-                }
-            }
-        }
-
-        panic!("Something wrong");
-    }
-
     #[inline]
     pub fn get(
         &self,
@@ -214,113 +164,174 @@ impl<T: Serializable> InMemoryStore<T> {
 
         let map = self.map.read_guard(&key.to_string());
 
-        if_likely! {let Some(d) = map.get(key) => {
-            let etag = d.etag();
-            let request_key = (key.to_string(), String::from_utf8(etag.to_vec()).unwrap());
+        let (etag, val) = match map.get(key) {
+            Some(d) => (d.etag(), Some(d.val())),
+            None => (&ETAG_UNCHANGED.to_vec(), None),
+        };
 
-            let request_read_shard = self.request_condvar.read_guard(&request_key);
+        let request_key = (key.to_string(), String::from_utf8(etag.to_vec()).unwrap());
 
-            match self.request_condvar.get_through_shard(&request_key, &request_read_shard) {
-                None => {
-                    let pair: Arc<(Mutex<RedisMessage<T>>, Condvar)> = Arc::new((Mutex::new(RedisMessage::new()), Condvar::new()));
-                    // release read lock
-                    drop(request_read_shard);
-                    // require write lock
-                    let mut write_shard = self.request_condvar.write_guard(&request_key);
-                    match write_shard.insert(request_key.clone(), pair.clone()) {
-                        None => {
-                            // inserted, do request
-                            let (lock, cvar) = &*pair;
-                            match try_get_from_local(uuid, key, etag, redis_conn) {
-                                Ok(GetThroughLocalResult::Unchanged) => {
-                                    probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
+        let request_read_shard = self.request_condvar.read_guard(&request_key);
 
-                                    let mut message = lock.lock().unwrap();
-                                    message.notified = true;
-                                    message.redis_result = Some(Arc::new(RedisResult::Unchanged));
-                                    cvar.notify_one();
+        match self
+            .request_condvar
+            .get_through_shard(&request_key, &request_read_shard)
+        {
+            // request is undergoing, wait for request
+            Some(pair) => {
+                return self.wait_for_request(pair.clone(), val, &request_key);
+            }
+            None => {
+                let pair: Arc<(Mutex<RedisMessage<T>>, Condvar)> =
+                    Arc::new((Mutex::new(RedisMessage::new()), Condvar::new()));
+                // release read lock
+                drop(request_read_shard);
+                // require write lock
+                let mut write_shard = self.request_condvar.write_guard(&request_key);
 
-                                    // map' shard write lock release here
-                                   return Ok(GetResult::Unchanged(d.val().clone()));
-                                }
-                                Ok(GetThroughLocalResult::None) => {
-                                    probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
+                match write_shard.insert(request_key.clone(), pair.clone()) {
+                    Some(pair) => {
+                        // inserted by other thread, drop lock and wait for request
+                        drop(write_shard);
 
-                                    let mut message = lock.lock().unwrap();
-                                    message.notified = true;
-                                    message.redis_result = Some(Arc::new(RedisResult::None));
-                                    cvar.notify_one();
-
-                                    return Ok(GetResult::None);
-                                },
-                                Ok(GetThroughLocalResult::New(val, etag)) => {
-                                    let (decoded, _): (T, usize) = T::deserialize(&val, &self.coder_config).unwrap();
-                                    let decoded_arc = Arc::new(decoded);
-
-                                     // release read lock, acquire write lock and block read
-                                    drop(map);
-                                    let mut map = self.map.write_guard(&key.to_string());
-                                    map.insert(key.to_string(), Arc::new(DataInner(etag,  decoded_arc.clone())));
-
-                                    probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
-
-                                    let mut message = lock.lock().unwrap();
-                                    message.notified = true;
-                                    message.redis_result = Some(Arc::new(RedisResult::New(decoded_arc.clone())));
-                                    cvar.notify_one();
-
-                                    return Ok(GetResult::New(decoded_arc));
-                                }
-                                Err(e) => {
-                                    probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
-
-                                    let mut message = lock.lock().unwrap();
-                                    message.notified = true;
-                                    let ccache_error: CcacheRedisError = e.into();
-                                    message.redis_result = Some(Arc::new(RedisResult::Error(ccache_error.clone())));
-                                    cvar.notify_one();
-
-                                    return Err(ccache_error);
-                                },
-                            }
-                        },
-                        Some(pair) => {
-                            // inserted by other thread, drop lock and wait for request
-                            drop(write_shard);
-
-                            return self.wait_for_request(pair.clone(), d.clone(), &request_key);
-                         },
+                        return self.wait_for_request(pair.clone(), val, &request_key);
                     }
-                },
-                Some(pair) => {
-                    return self.wait_for_request(pair.clone(), d.clone(), &request_key);
+                    None => {
+                        // inserted, do request
+                        let (lock, cvar) = &*pair;
+                        match request_through_etag(uuid, key, etag, redis_conn) {
+                            Ok(RequestThroughLocalResult::Unchanged) => {
+                                probe!(
+                                    ccache,
+                                    store,
+                                    trace::Event::new("get", "end", key, &uuid.to_string())
+                                        .as_ptr()
+                                );
+
+                                let mut message = lock.lock().unwrap();
+                                message.notified = true;
+                                message.redis_result = Some(Arc::new(RedisResult::Unchanged));
+                                cvar.notify_one();
+
+                                // map' shard write lock release here
+                                return Ok(GetResult::Unchanged(val.unwrap().clone()));
+                            }
+                            Ok(RequestThroughLocalResult::None) => {
+                                probe!(
+                                    ccache,
+                                    store,
+                                    trace::Event::new("get", "end", key, &uuid.to_string())
+                                        .as_ptr()
+                                );
+
+                                let mut message = lock.lock().unwrap();
+                                message.notified = true;
+                                message.redis_result = Some(Arc::new(RedisResult::None));
+                                cvar.notify_one();
+
+                                return Ok(GetResult::None);
+                            }
+                            Ok(RequestThroughLocalResult::New(val, etag)) => {
+                                let (decoded, _): (T, usize) =
+                                    T::deserialize(&val, &self.coder_config).unwrap();
+                                let decoded_arc = Arc::new(decoded);
+
+                                // release read lock, acquire write lock and block read
+                                drop(map);
+                                let mut map = self.map.write_guard(&key.to_string());
+                                map.insert(
+                                    key.to_string(),
+                                    Arc::new(DataInner(etag, decoded_arc.clone())),
+                                );
+
+                                probe!(
+                                    ccache,
+                                    store,
+                                    trace::Event::new("get", "end", key, &uuid.to_string())
+                                        .as_ptr()
+                                );
+
+                                let mut message = lock.lock().unwrap();
+                                message.notified = true;
+                                message.redis_result =
+                                    Some(Arc::new(RedisResult::New(decoded_arc.clone())));
+                                cvar.notify_one();
+
+                                return Ok(GetResult::New(decoded_arc));
+                            }
+                            Err(e) => {
+                                probe!(
+                                    ccache,
+                                    store,
+                                    trace::Event::new("get", "end", key, &uuid.to_string())
+                                        .as_ptr()
+                                );
+
+                                let mut message = lock.lock().unwrap();
+                                message.notified = true;
+                                let ccache_error: CcacheRedisError = e.into();
+                                message.redis_result =
+                                    Some(Arc::new(RedisResult::Error(ccache_error.clone())));
+                                cvar.notify_one();
+
+                                return Err(ccache_error);
+                            }
+                        }
+                    }
                 }
             }
-        } else {
-            // todo: use try_get_from_local with nil etag
-            let redis_result = get_from_redis_request(uuid, key, redis_conn)?;
-            if redis_result.is_empty() {
-                probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
+        }
+    }
 
-                Ok(GetResult::None) // redis missed
-            } else {
-                let val = redis_result.get("val").unwrap();
+    fn wait_for_request_cleanup(
+        &self,
+        message: &mut std::sync::MutexGuard<RedisMessage<T>>,
+        request_key: &(String, String),
+    ) {
+        message.waiting_count -= 1;
 
-                let etag = redis_result.get("etag").unwrap();
+        if message.waiting_count == 0 {
+            let mut write_shard = self.request_condvar.write_guard(&request_key);
+            write_shard.remove(request_key);
+        }
+    }
 
-                let (decoded, _): (T, usize) = T::deserialize(&val, &self.coder_config).unwrap();
-                let decoded_arc = Arc::new(decoded);
+    fn wait_for_request(
+        &self,
+        pair: Arc<(Mutex<RedisMessage<T>>, Condvar)>,
+        val: Option<Arc<T>>,
+        request_key: &(String, String),
+    ) -> Result<GetResult<Arc<T>>, CcacheRedisError> {
+        let (lock, cvar) = &*pair.clone();
+        let mut message = lock.lock().unwrap();
+        message.waiting_count += 1;
 
-                // release read lock, acquire write lock and block read
-                drop(map);
-                let mut map = self.map.write_guard(&key.to_string());
-                map.insert(key.to_string(), Arc::new(DataInner(etag.clone(),  decoded_arc.clone())));
+        while !message.notified {
+            let mut message: std::sync::MutexGuard<RedisMessage<T>> = cvar.wait(message).unwrap();
+            self.wait_for_request_cleanup(&mut message, request_key);
 
-                probe!(ccache, store, trace::Event::new("get", "end", key, &uuid.to_string()).as_ptr());
-
-                Ok(GetResult::New(decoded_arc))
+            match &mut message.redis_result {
+                Some(arc_result) => match &**arc_result {
+                    RedisResult::None => {
+                        return Ok(GetResult::None);
+                    }
+                    RedisResult::Unchanged => {
+                        return Ok(GetResult::Unchanged(val.unwrap().clone()));
+                    }
+                    RedisResult::New(arc_value) => {
+                        return Ok(GetResult::New(arc_value.clone()));
+                    }
+                    RedisResult::Error(e) => {
+                        return Err(e.clone());
+                    }
+                },
+                None => {
+                    panic!("Something wrong");
+                }
             }
-        }}
+        }
+
+        panic!("Something wrong");
     }
 
     fn insert_to_redis(
@@ -376,44 +387,22 @@ impl<T: Serializable> InMemoryStore<T> {
     }
 }
 
-fn get_from_redis_request(
-    uuid: Uuid,
-    key: &str,
-    conn: &mut redis::Connection,
-) -> Result<HashMap<String, Vec<u8>>, redis::RedisError> {
-    probe!(
-        ccache,
-        store,
-        trace::Event::new("get_from_redis_request", "start", key, &uuid.to_string()).as_ptr()
-    );
-
-    let result = redis::cmd("HGETALL").arg(key.to_string()).query(conn);
-
-    probe!(
-        ccache,
-        store,
-        trace::Event::new("get_from_redis_request", "end", key, &uuid.to_string()).as_ptr()
-    );
-
-    result
-}
-
 #[inline]
-fn try_get_from_local(
+fn request_through_etag(
     uuid: Uuid,
     key: &str,
     etag: &Vec<u8>,
     conn: &mut redis::Connection,
-) -> Result<GetThroughLocalResult, redis::RedisError> {
+) -> Result<RequestThroughLocalResult, redis::RedisError> {
     let redis_result = get_from_redis_through_etag(uuid, key, etag, conn)?;
     if unlikely(redis_result.is_empty()) {
-        Ok(GetThroughLocalResult::None)
+        Ok(RequestThroughLocalResult::None)
     } else if likely(redis_result.get("etag").unwrap() == ETAG_UNCHANGED) {
-        Ok(GetThroughLocalResult::Unchanged)
+        Ok(RequestThroughLocalResult::Unchanged)
     } else {
         let val = redis_result.get("val").unwrap().to_vec();
         let etag = redis_result.get("etag").unwrap();
-        Ok(GetThroughLocalResult::New(val, etag.clone()))
+        Ok(RequestThroughLocalResult::New(val, etag.clone()))
     }
 }
 
