@@ -20,20 +20,6 @@ impl<'a, K: 'a + Eq + Hash + core::fmt::Debug, V: Clone> PartitionedHashMap<K, V
         Self { shards, hasher }
     }
 
-    pub fn insert(&self, key: K, value: V) -> Option<V> {
-        let idx = self.shard_idx(&key);
-
-        let mut shard = unsafe { self._write_shard(idx) };
-        shard.insert(key, value)
-    }
-
-    pub fn get(&self, key: K) -> Option<V> {
-        let idx = self.shard_idx(&key);
-
-        let shard = unsafe { self._read_shard(idx) };
-        shard.get(&key).cloned()
-    }
-
     pub fn get_through_shard(
         &self,
         key: &K,
