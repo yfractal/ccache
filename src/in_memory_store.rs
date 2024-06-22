@@ -83,7 +83,6 @@ enum RedisResult<T> {
 
 struct RedisMessage<T> {
     notified: bool,
-    waiting_count: i32,
     redis_result: Option<Arc<RedisResult<T>>>,
 }
 
@@ -91,7 +90,6 @@ impl<T> RedisMessage<T> {
     fn new() -> Self {
         RedisMessage {
             notified: false,
-            waiting_count: 0,
             redis_result: None,
         }
     }
@@ -185,9 +183,10 @@ impl<T: Serializable> InMemoryStore<T> {
             .request_condvar
             .get_through_shard(&request_key, &request_read_shard)
         {
-            // request is undergoing, wait for request
+            // request is undergoing, wait for the request
             Some(pair) => {
-                return self.wait_for_request(pair.clone(), val, &request_key);
+                drop(request_read_shard);
+                return self.wait_for_request(pair.clone(), val);
             }
             None => {
                 let pair: Arc<(Mutex<RedisMessage<T>>, Condvar)> =
@@ -201,12 +200,13 @@ impl<T: Serializable> InMemoryStore<T> {
                     Some(pair) => {
                         // inserted by other thread, drop lock and wait for request
                         drop(write_shard);
-
-                        return self.wait_for_request(pair.clone(), val, &request_key);
+                        return self.wait_for_request(pair.clone(), val);
                     }
                     None => {
+                        drop(write_shard);
                         // inserted, do request
                         let (lock, cvar) = &*pair;
+
                         match request_through_etag(uuid, key, etag, redis_conn) {
                             Ok(RequestThroughLocalResult::Unchanged) => {
                                 probe!(
@@ -219,7 +219,12 @@ impl<T: Serializable> InMemoryStore<T> {
                                 let mut message = lock.lock().unwrap();
                                 message.notified = true;
                                 message.redis_result = Some(Arc::new(RedisResult::Unchanged));
-                                cvar.notify_one();
+
+                                // acquire write, blocks all read, then cvar.notify_all() will notify all waiting threads
+                                self.request_condvar
+                                    .write_guard(&request_key)
+                                    .remove(&request_key);
+                                cvar.notify_all();
 
                                 // map' shard write lock release here
                                 return Ok(GetResult::Unchanged(val.unwrap().clone()));
@@ -235,7 +240,11 @@ impl<T: Serializable> InMemoryStore<T> {
                                 let mut message = lock.lock().unwrap();
                                 message.notified = true;
                                 message.redis_result = Some(Arc::new(RedisResult::None));
-                                cvar.notify_one();
+
+                                self.request_condvar
+                                    .write_guard(&request_key)
+                                    .remove(&request_key);
+                                cvar.notify_all();
 
                                 return Ok(GetResult::None);
                             }
@@ -263,7 +272,11 @@ impl<T: Serializable> InMemoryStore<T> {
                                 message.notified = true;
                                 message.redis_result =
                                     Some(Arc::new(RedisResult::New(decoded_arc.clone())));
-                                cvar.notify_one();
+
+                                self.request_condvar
+                                    .write_guard(&request_key)
+                                    .remove(&request_key);
+                                cvar.notify_all();
 
                                 return Ok(GetResult::New(decoded_arc));
                             }
@@ -280,7 +293,11 @@ impl<T: Serializable> InMemoryStore<T> {
                                 let ccache_error: CcacheRedisError = e.into();
                                 message.redis_result =
                                     Some(Arc::new(RedisResult::Error(ccache_error.clone())));
-                                cvar.notify_one();
+
+                                self.request_condvar
+                                    .write_guard(&request_key)
+                                    .remove(&request_key);
+                                cvar.notify_all();
 
                                 return Err(ccache_error);
                             }
@@ -291,16 +308,29 @@ impl<T: Serializable> InMemoryStore<T> {
         }
     }
 
-    fn wait_for_request_cleanup(
+    fn wait_for_request_handle_redis_result(
         &self,
-        message: &mut std::sync::MutexGuard<RedisMessage<T>>,
-        request_key: &(String, String),
-    ) {
-        message.waiting_count -= 1;
-
-        if message.waiting_count == 0 {
-            let mut write_shard = self.request_condvar.write_guard(&request_key);
-            write_shard.remove(request_key);
+        val: Option<Arc<T>>,
+        redis_result: &mut Option<Arc<RedisResult<T>>>,
+    ) -> Result<GetResult<Arc<T>>, CcacheRedisError> {
+        match redis_result {
+            Some(arc_result) => match &**arc_result {
+                RedisResult::None => {
+                    return Ok(GetResult::None);
+                }
+                RedisResult::Unchanged => {
+                    return Ok(GetResult::Unchanged(val.unwrap().clone()));
+                }
+                RedisResult::New(arc_value) => {
+                    return Ok(GetResult::New(arc_value.clone()));
+                }
+                RedisResult::Error(e) => {
+                    return Err(e.clone());
+                }
+            },
+            None => {
+                panic!("Message result is None");
+            }
         }
     }
 
@@ -308,38 +338,24 @@ impl<T: Serializable> InMemoryStore<T> {
         &self,
         pair: Arc<(Mutex<RedisMessage<T>>, Condvar)>,
         val: Option<Arc<T>>,
-        request_key: &(String, String),
     ) -> Result<GetResult<Arc<T>>, CcacheRedisError> {
         let (lock, cvar) = &*pair.clone();
         let mut message = lock.lock().unwrap();
-        message.waiting_count += 1;
 
-        while !message.notified {
-            let mut message: std::sync::MutexGuard<RedisMessage<T>> = cvar.wait(message).unwrap();
-            self.wait_for_request_cleanup(&mut message, request_key);
-
-            match &mut message.redis_result {
-                Some(arc_result) => match &**arc_result {
-                    RedisResult::None => {
-                        return Ok(GetResult::None);
-                    }
-                    RedisResult::Unchanged => {
-                        return Ok(GetResult::Unchanged(val.unwrap().clone()));
-                    }
-                    RedisResult::New(arc_value) => {
-                        return Ok(GetResult::New(arc_value.clone()));
-                    }
-                    RedisResult::Error(e) => {
-                        return Err(e.clone());
-                    }
-                },
-                None => {
-                    panic!("Message result is None");
-                }
+        if message.notified {
+            // this happens when
+            // request_through_etag finished
+            // then pair is getted from request_condvar
+            // message is updated in the request thread
+            return self.wait_for_request_handle_redis_result(val, &mut message.redis_result);
+        } else {
+            while !message.notified {
+                let mut message = cvar.wait(message).unwrap();
+                return self.wait_for_request_handle_redis_result(val, &mut message.redis_result);
             }
-        }
 
-        panic!("Out off while loop");
+            panic!("wrong condvar");
+        }
     }
 
     fn insert_to_redis(
