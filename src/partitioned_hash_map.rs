@@ -68,8 +68,10 @@ mod tests {
     fn test_basic() {
         let map = PartitionedHashMap::new();
         let mep_alais = &map;
-        map.insert(1, 2);
-        mep_alais.insert(2, 3);
-        assert_eq!(map.get(1).unwrap(), 2);
+        map.write_guard(&1).insert(1, 2);
+        mep_alais.write_guard(&2).insert(2, 3);
+        let read_shard = map.read_guard(&1);
+        let rv = read_shard.get(&1).unwrap();
+        assert_eq!(rv, &2);
     }
 }
