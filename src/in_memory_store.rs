@@ -4,6 +4,7 @@ use crate::trace;
 
 use std::collections::hash_map::RandomState;
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::{Arc, Condvar, Mutex};
 
 use likely_stable::{likely, unlikely};
@@ -13,7 +14,13 @@ use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 pub struct CcacheRedisError {
-    pub description: String,
+    description: String,
+}
+
+impl fmt::Display for CcacheRedisError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.description)
+    }
 }
 
 impl From<redis::RedisError> for CcacheRedisError {
@@ -164,9 +171,10 @@ impl<T: Serializable> InMemoryStore<T> {
 
         let map = self.map.read_guard(&key.to_string());
 
+        let tag = ETAG_UNCHANGED.to_vec();
         let (etag, val) = match map.get(key) {
             Some(d) => (d.etag(), Some(d.val())),
-            None => (&ETAG_UNCHANGED.to_vec(), None),
+            None => (&tag, None),
         };
 
         let request_key = (key.to_string(), String::from_utf8(etag.to_vec()).unwrap());
@@ -326,12 +334,12 @@ impl<T: Serializable> InMemoryStore<T> {
                     }
                 },
                 None => {
-                    panic!("Something wrong");
+                    panic!("Message result is None");
                 }
             }
         }
 
-        panic!("Something wrong");
+        panic!("Out off while loop");
     }
 
     fn insert_to_redis(
