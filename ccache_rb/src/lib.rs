@@ -64,15 +64,15 @@ methods!(
         }
     },
     fn ruby_insert(key: RString, obj: AnyObject) -> AnyObject {
-        let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
+        let store = rtself.get_data_mut(&*STORE_WRAPPER);
         let k = key.unwrap();
         let val = obj.unwrap().value();
 
         let ruby_object = RubyObject { value: val };
 
-        match rbself
+        match store
             .inner
-            .insert(k.to_str(), ruby_object, &mut rbself.redis_client)
+            .insert(k.to_str(), ruby_object, &mut store.redis_client)
         {
             Ok(etag) => {
                 unsafe {
@@ -90,8 +90,8 @@ methods!(
     },
     fn rs_get(key: RString) -> AnyObject {
         let k = key.unwrap();
-        let rbself = rtself.get_data_mut(&*STORE_WRAPPER);
-        let result = rbself.inner.get(k.to_str(), &mut rbself.redis_client);
+        let store = rtself.get_data_mut(&*STORE_WRAPPER);
+        let result = store.inner.get(k.to_str(), &mut store.redis_client);
 
         match result {
             Ok(GetResult::New(val)) => {
